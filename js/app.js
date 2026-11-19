@@ -603,12 +603,18 @@
         const ms = performance.now() - R.startAt;
         finishAttempt(actor, ms);
       },
+      // Freeze the player for ms. Overlapping freezes don't stack and never shorten each
+      // other: whichever ends later wins. Returns the end time if this one took effect, else 0.
       penalty(ms, reason) {
-        if (!R.active) return;
-        R.frozenUntil = performance.now() + ms;
+        if (!R.active) return 0;
+        const end = performance.now() + ms;
+        if (R.frozenUntil && R.frozenUntil >= end) return 0; // a longer freeze is already running
+        R.frozenUntil = end;
         $('pen-msg').textContent = reason || 'Penalty!';
+        $('penalty').classList.remove('ice');
         overlay('penalty', true);
         if (navigator.vibrate) navigator.vibrate(120);
+        return end;
       },
     };
     R.attempt = { actor, api, flushProg: () => { if (progTimer) { clearTimeout(progTimer); progTimer = null; } if (pendingProg != null) send({ t: 'prog', i: R.i, p: pendingProg }); } };
@@ -1193,10 +1199,12 @@
   function receiveFreeze() {
     const R = S.round;
     if (!R || !R.active || !R.attempt) return;
-    R.attempt.api.penalty(FREEZE_MS, `❄️ ${nameOf(oppRole())} froze you!`);
-    $('penalty').classList.add('ice');
-    setTimeout(() => $('penalty').classList.remove('ice'), FREEZE_MS);
+    const end = R.attempt.api.penalty(FREEZE_MS, `❄️ ${nameOf(oppRole())} froze you!`);
     Sound.tone(300, 0.4, 'triangle', 0.07);
+    if (!end) { toast(`❄️ ${nameOf(oppRole())} froze you — but you were already frozen for longer.`); return; }
+    $('penalty').classList.add('ice');
+    // drop the ice look when this freeze ends, unless a longer penalty has replaced it
+    setTimeout(() => { if (S.round === R && R.frozenUntil === end) $('penalty').classList.remove('ice'); }, FREEZE_MS);
   }
 
   // ─────────────── bot ───────────────
