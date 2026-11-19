@@ -91,6 +91,8 @@ button.menu-card:hover { transform: translateY(-2px); border-color: var(--border
 .menu-card.daily { grid-column: 1 / -1; background: linear-gradient(135deg, rgba(255,213,79,0.12), rgba(244,143,177,0.12)); border-color: #6a5a40; }
 .challenge-banner { display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center; border-color: var(--gold); background: rgba(255,213,79,0.08); }
 .cb-title { font-weight: 900; font-size: 1.2rem; color: var(--gold); }
+.menu-card.quick { grid-column: 1 / -1; background: linear-gradient(135deg, rgba(105,240,174,0.16), rgba(79,195,247,0.16)); border-color: #2e7d6a; }
+.badge { font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; padding: 2px 7px; border-radius: 20px; background: var(--good); color: #062a1a; vertical-align: middle; margin-left: 4px; }
 .mc-icon { font-size: 1.6rem; }
 .mc-title { font-weight: 700; font-size: 1.05rem; }
 .mc-sub { color: var(--dim); font-size: 0.85rem; }
@@ -339,6 +341,22 @@ button.menu-card:hover { transform: translateY(-2px); border-color: var(--border
 .rcell.lit { background: radial-gradient(circle, #e1bee7, #ab47bc); box-shadow: 0 0 16px rgba(171,71,188,0.7); border-color: #e1bee7; }
 .rcell.hit { background: rgba(105,240,174,0.25); border-color: var(--good); }
 .rcell.miss { background: rgba(255,110,110,0.3); border-color: var(--bad); }
+
+/* Quick match search */
+.search-card { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding-top: 36px; }
+.radar { width: 120px; height: 120px; border-radius: 50%; position: relative; display: flex; align-items: center; justify-content: center; font-size: 2.6rem; background: radial-gradient(circle, rgba(79,195,247,0.18), transparent 70%); border: 2px solid rgba(79,195,247,0.4); }
+.radar::before, .radar::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--me); animation: ping-ring 2s ease-out infinite; }
+.radar::after { animation-delay: 1s; }
+@keyframes ping-ring { from { transform: scale(1); opacity: 0.8; } to { transform: scale(1.9); opacity: 0; } }
+.radar.found { border-color: var(--good); background: radial-gradient(circle, rgba(105,240,174,0.25), transparent 70%); }
+.radar.found::before, .radar.found::after { border-color: var(--good); animation-iteration-count: 1; }
+.search-title { font-size: clamp(1.5rem, 6vw, 2.2rem); }
+.search-found { font-size: 1.3rem; color: var(--opp); }
+.search-time { font-size: 1.6rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.search-tips { display: flex; flex-direction: column; gap: 10px; max-width: 420px; }
+.search-note { max-width: 360px; line-height: 1.5; margin-top: 10px; }
+.final-rating { font-size: 1.15rem; background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 8px 16px; }
+.final-rating .up { color: var(--good); font-weight: 800; } .final-rating .down { color: var(--bad); font-weight: 800; }
 
 /* ── overlays ── */
 .overlay { position: fixed; inset: 0; background: rgba(5,5,18,0.78); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; animation: fade-in 0.2s; }

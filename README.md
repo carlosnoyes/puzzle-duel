@@ -5,6 +5,7 @@ A competitive two-player puzzle race in the browser. Both players get the **exac
 It's a static site: no build step and no backend. Host it on GitHub Pages (or any static host) and share a room link.
 
 ## Ways to play
+- **⚡ Quick Match (ranked)**: get paired with a random player near your skill level, with no account or sign-in. See below.
 - **Online with a friend**: create a room and send the link or the 5-letter code. Players connect peer-to-peer over WebRTC, using the free PeerJS broker (vendored in `vendor/`).
 - **Daily Challenge**: everyone gets the same 3 puzzles each day. Share a challenge link and your friend races your ghost asynchronously. Tracks daily streaks.
 - **Vs Bot**: Rookie, Pro, Master, or **Adaptive**. The Adaptive bot speeds up when you win and slows down when you lose, settling at your level.
@@ -25,12 +26,22 @@ Each puzzle has Easy, Normal and Hard levels.
 - Head-to-head records per rival, personal bests, match stats, shareable result summaries
 - Installable PWA with offline fallback (bot, practice, daily and pass-and-play work offline)
 
+## Quick Match: how it works without a backend
+The free PeerJS broker only lets you register an ID and connect to an ID, so it doubles as a tiny waiting list. Every rating band of 200 points has a well-known waiting-room ID.
+1. **Scan:** try to connect to the waiting rooms for nearby bands. If someone answers, play them.
+2. **Wait:** otherwise, claim your own band's waiting room for a few seconds. If the claim fails because someone got there first, join them instead.
+3. **Widen:** repeat, widening to neighbouring bands each cycle, until after about 30 seconds every skill level is included.
+
+Once two players connect, the waiting player releases the ID while keeping the live connection open, so the room is free for the next pair. All of this is in `js/matchmaker.js`.
+
+**Ratings** use standard Elo: everyone starts at 1000, with K=40 for a player's first 10 games and K=24 after that. Ratings are stored on each device, so there's no account, and a player can edit their own rating if they really want to. Ranked matches always use the same settings: best of 3, normal difficulty, all puzzles, freeze on. Leaving a ranked match counts as a loss, applied the next time that player opens the app. If your opponent leaves, you win by forfeit.
+
 ## Rooms
 Two players per room. Any number of rooms can run at once.
 
 ## Development
 - Plain HTML, CSS and JS. The only dependency is the vendored PeerJS (MIT, see `vendor/peerjs.LICENSE`).
-- Files: `index.html`, `style.css`, `js/util.js` (seeded RNG, sound, helpers), `js/net.js` (networking), `js/puzzles.js` (all puzzles), `js/app.js` (lobby and match flow), `sw.js` (offline cache).
+- Files: `index.html`, `style.css`, `js/util.js` (seeded RNG, sound, helpers), `js/net.js` (networking), `js/matchmaker.js` (Quick Match and Elo), `js/puzzles.js` (all puzzles), `js/app.js` (lobby and match flow), `sw.js` (offline cache).
 - To test online play without internet, add `?net=bc` to the URL. This switches to a BroadcastChannel transport between two tabs of the same browser (open the invite link in a second tab).
 
 ## Hosting on GitHub Pages

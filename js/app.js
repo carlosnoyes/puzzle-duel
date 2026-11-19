@@ -72,6 +72,7 @@
 
   function renderHome() {
     renderDailyCard();
+    renderQuickCard();
     document.querySelectorAll('.practice-diff .seg button').forEach(b => b.classList.toggle('on', b.dataset.v === (S.settings.diff || 'normal')));
     const list = $('puzzle-list'); list.innerHTML = '';
     const best = (store('stats') || {}).best || {};
@@ -95,6 +96,8 @@
   const stat = (v, l) => el('div', { class: 'stat' }, el('div', { class: 'stat-v' }, String(v)), el('div', { class: 'stat-l' }, l));
 
   function goHome() {
+    stopMatchmaker();
+    S.ranked = null;
     teardownNet();
     endRoundUI();
     S.mode = null; S.match = null; S.round = null;
@@ -248,9 +251,26 @@
   }
 
   function onPeerLeft() {
-    if (!S.connected) return;
+    if (!S.connected || S.unloading) return; // our own tab closing also drops the connection
     S.connected = false; S.rtt = null; showPing();
     const who = S.oppName || 'Your rival';
+    if (S.ranked) {
+      const live = S.match && !S.match.over;
+      if (live) {
+        const res = applyElo(1);
+        toast(`${who} left the match — you win by forfeit (${fmtDelta(res.delta)}).`);
+        S.ranked = null;
+        goHome();
+      } else if (!S.match) {
+        toast(`${who} left before the match started — searching again…`);
+        startQuickMatch();
+      } else {
+        // match already finished: stay on the results screen
+        clearInterval(hbTimer);
+        $('rematch-hint').textContent = `${who} has left.`;
+      }
+      return;
+    }
     toast(`${who} disconnected.`, true);
     if (S.mode === 'guest') { goHome(); return; }
     // host: back to lobby, keep room open for a new guest
@@ -359,6 +379,9 @@
         if (S.mode === 'guest') { markPicked(m.pid); return; }
         if (S.pickFor === 'guest') { S.pickFor = null; markPicked(m.pid); send({ t: 'picked', pid: m.pid }); setTimeout(() => hostNextRound(m.pid), 700); }
         break;
+      case 'rate':
+        if (S.ranked && isFinite(+m.r)) { S.ranked.oppRating = Math.max(100, Math.min(3200, Math.round(+m.r))); updateRankedHud(); }
+        break;
       case 'freeze':
         if (S.round && m.i === S.round.i) receiveFreeze();
         break;
@@ -380,15 +403,21 @@
   }
 
   // ─────────────── match flow (authority) ───────────────
-  function hostStartMatch() {
+  // Quick Match uses fixed, fair settings regardless of either player's saved preferences
+  const RANKED_CFG = { rounds: 3, diff: 'normal', order: 'random', powerups: 'on', pool: null };
+  function matchCfg() { return S.ranked ? Object.assign({}, RANKED_CFG, { pool: P.list.map(p => p.id) }) : S.settings; }
+
+  function hostStartMatch(cfg) {
+    cfg = cfg || matchCfg();
     S.rematch = { host: false, guest: false };
     const match = {
       seed: randomSeed(),
-      rounds: +S.settings.rounds,
-      diff: S.settings.diff,
-      pool: S.settings.pool.slice(),
-      order: S.settings.order || 'random',
-      powerups: S.mode !== 'local' && S.settings.powerups === 'on',
+      rounds: +cfg.rounds,
+      diff: cfg.diff,
+      pool: cfg.pool.slice(),
+      order: cfg.order || 'random',
+      powerups: S.mode !== 'local' && cfg.powerups === 'on',
+      ranked: !!S.ranked,
     };
     send({ t: 'match', match });
     beginMatch(match);
@@ -473,8 +502,21 @@
     S.rematch = { host: false, guest: false };
     $('hud-me-name').textContent = S.mode === 'local' ? myName() : myName();
     $('hud-opp-name').textContent = nameOf(oppRole());
+    if (S.ranked) {
+      // record a provisional loss up front; it is cleared when the match finishes normally,
+      // so closing the tab mid-match still counts as a loss next time the app opens
+      store('qmPending', { opp: S.ranked.oppRating, name: S.oppName });
+      send({ t: 'rate', r: PD.Elo.get().r });
+      updateRankedHud();
+    }
     updateScores();
     show('game');
+  }
+
+  function updateRankedHud() {
+    if (!S.ranked) return;
+    $('hud-me-name').textContent = `${myName()} · ${PD.Elo.get().r}`;
+    $('hud-opp-name').textContent = `${nameOf(oppRole())} · ${S.ranked.oppRating}`;
   }
 
   function updateScores() {
@@ -797,12 +839,21 @@
     }
     $('rematch-hint').textContent = '';
     $('btn-rematch').textContent = '🔁 Rematch';
+    const rb = $('final-rating');
+    rb.classList.add('hidden');
+    if (S.ranked) {
+      M.over = true;
+      const res = applyElo(!winner ? 0.5 : winner === me ? 1 : 0);
+      rb.innerHTML = `Rating <b>${res.before}</b> → <b>${res.after}</b> <span class="${res.delta >= 0 ? 'up' : 'down'}">${fmtDelta(res.delta)}</span>` + (PD.Elo.provisional() ? ' <span class="muted small">(provisional)</span>' : '');
+      rb.classList.remove('hidden');
+      updateRankedHud();
+    }
     $('btn-rematch').classList.toggle('hidden', S.mode === 'daily');
     $('btn-share-result').classList.toggle('hidden', S.mode === 'practice');
     $('btn-share-result').textContent = '📋 Share result';
     if (S.mode === 'daily') dailyFinished();
     if (S.mode === 'practice') practiceFinished();
-    $('btn-final-home').textContent = (S.mode === 'host' || S.mode === 'guest') ? 'Back to lobby' : 'Home';
+    $('btn-final-home').textContent = S.ranked ? '⚡ New opponent' : (S.mode === 'host' || S.mode === 'guest') ? 'Back to lobby' : 'Home';
     // stats (only for online + bot)
     if (S.mode !== 'local' && S.mode !== 'daily' && S.mode !== 'practice') {
       const st = store('stats') || {};
@@ -832,10 +883,101 @@
   }
 
   function finalHome() {
+    if (S.ranked) { teardownNet(); S.ranked = null; abortMatch(); startQuickMatch(); return; }
     if (S.mode === 'host' || S.mode === 'guest') {
       if (S.mode === 'host') send({ t: 'lobby' });
       abortMatch(); openLobby();
     } else goHome();
+  }
+
+  // ─────────────── quick match (ranked, no backend) ───────────────
+  let mm = null, searchTimer = null;
+  const fmtDelta = d => (d >= 0 ? '+' : '') + d;
+
+  function applyElo(score) {
+    const opp = S.ranked ? S.ranked.oppRating : 1000;
+    const res = PD.Elo.apply(score, opp);
+    store('qmPending', null);
+    return res;
+  }
+
+  function stopMatchmaker() {
+    if (mm) { mm.stop(); mm = null; }
+    clearInterval(searchTimer);
+  }
+
+  function startQuickMatch() {
+    stopMatchmaker();
+    teardownNet();
+    S.mode = null; S.ranked = null;
+    const elo = PD.Elo.get();
+    $('search-title').textContent = 'Finding an opponent…';
+    $('search-status').textContent = 'Connecting to matchmaking…';
+    $('search-rating').textContent = `Your rating: ${elo.r}` + (PD.Elo.provisional() ? ' (provisional)' : '');
+    $('search-found').classList.add('hidden');
+    $('search-tips').classList.add('hidden');
+    $('search-radar').classList.remove('found');
+    $('search-cancel').classList.remove('hidden');
+    show('search');
+    const t0 = Date.now();
+    searchTimer = setInterval(() => {
+      const s2 = Math.floor((Date.now() - t0) / 1000);
+      $('search-time').textContent = `${Math.floor(s2 / 60)}:${String(s2 % 60).padStart(2, '0')}`;
+      if (s2 >= 30) $('search-tips').classList.remove('hidden');
+    }, 250);
+    $('search-time').textContent = '0:00';
+    if (new URLSearchParams(location.search).get('net') === 'bc') {
+      $('search-status').textContent = 'Quick Match needs the real network (remove ?net=bc).';
+      return;
+    }
+    mm = new PD.Matchmaker({
+      rating: elo.r,
+      name: myName(),
+      version: VERSION,
+      onStatus: (text) => { if (text) $('search-status').textContent = text; },
+      onError: msg => { stopMatchmaker(); toast(msg, true); $('search-status').textContent = msg; },
+      onMatch: m => onQuickMatchFound(m),
+    });
+    mm.start();
+  }
+
+  function onQuickMatchFound(m) {
+    mm = null;
+    clearInterval(searchTimer);
+    Sound.good();
+    S.mode = m.role; // 'host' | 'guest'
+    S.oppName = m.opp.name;
+    S.ranked = { oppRating: m.opp.rating };
+    S.connected = true;
+    S.net = PD.Net.adopt({
+      onMessage: onMessage,
+      onClose: () => onPeerLeft(),
+      onError: (msg) => toast(msg, true),
+    }, m.peer, m.conn);
+    startHeartbeat();
+    $('search-title').textContent = 'Opponent found!';
+    $('search-status').textContent = '';
+    $('search-found').innerHTML = `<b>${escapeHtml(m.opp.name)}</b> · rating ${m.opp.rating}`;
+    $('search-found').classList.remove('hidden');
+    $('search-tips').classList.add('hidden');
+    $('search-cancel').classList.add('hidden');
+    $('search-radar').classList.add('found');
+    // the waiting player hosts the match, using the fixed ranked settings
+    if (S.mode === 'host') setTimeout(() => { if (S.ranked && S.connected) hostStartMatch(); }, 1800);
+  }
+
+  function checkAbandonedRanked() {
+    const p = store('qmPending');
+    if (!p || typeof p !== 'object') return;
+    S.ranked = { oppRating: Math.max(100, Math.min(3200, +p.opp || 1000)) };
+    const res = applyElo(0);
+    S.ranked = null;
+    toast(`You left a ranked match${p.name ? ' vs ' + p.name : ''} — counted as a loss (${fmtDelta(res.delta)}).`, true);
+  }
+
+  function renderQuickCard() {
+    const e = PD.Elo.get();
+    $('qm-sub').textContent = e.g ? `Rating ${e.r} · ${e.w}W ${e.l}L` + (e.g < 10 ? ' · provisional' : '') : 'Get matched with a random player near your level';
   }
 
   // ─────────────── loser picks ───────────────
@@ -1230,9 +1372,16 @@
       R.puzzle.onKey(e);
     });
 
-    window.addEventListener('beforeunload', () => { if (S.net) try { S.net.send({ t: 'bye' }); } catch (e) {} });
+    const onLeave = () => { if (S.unloading) return; S.unloading = true; if (S.net) try { S.net.send({ t: 'bye' }); } catch (e) {} };
+    window.addEventListener('beforeunload', onLeave);
+    window.addEventListener('pagehide', onLeave);
 
     $('btn-daily').onclick = () => { Sound.click(); startDaily(null); };
+    $('btn-quick').onclick = () => { Sound.click(); startQuickMatch(); };
+    $('search-cancel').onclick = () => { goHome(); };
+    $('search-bot').onclick = () => { stopMatchmaker(); S.mode = 'bot'; S.settings.bot = 'adaptive'; openLobby(); };
+    $('search-friend').onclick = () => { stopMatchmaker(); startHost(); };
+    checkAbandonedRanked();
     if (!store('seenHowto')) $('howto').classList.remove('hidden');
     $('howto-close').onclick = () => { $('howto').classList.add('hidden'); store('seenHowto', true); };
     renderHome();

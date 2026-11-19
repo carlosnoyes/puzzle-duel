@@ -78,6 +78,13 @@
       this.h.onError && this.h.onError(msg, type);
     }
 
+    // Take over a peer + already-open connection produced by the Quick Match matchmaker.
+    adopt(peer, conn) {
+      this.peer = peer;
+      this.peer.on('error', err => { if (err && err.type !== 'peer-unavailable') this._err(err); });
+      this._bind(conn);
+    }
+
     send(msg) { if (this.conn && this.conn.open) this.conn.send(msg); }
     drop() { const c = this.conn; this.conn = null; try { c && c.close(); } catch (e) {} }
     get connected() { return !!(this.conn && this.conn.open); }
@@ -127,6 +134,12 @@
     close() { try { this.ch.postMessage({ _bc: 'bye', from: this.id }); this.ch.close(); } catch (e) {} this.open = false; }
   }
 
+  function adopt(handlers, peer, conn) {
+    const t = new PeerTransport(handlers);
+    t.adopt(peer, conn);
+    return t;
+  }
+
   function create(handlers) {
     const params = new URLSearchParams(location.search);
     if (params.get('net') === 'bc') return new BCTransport(handlers);
@@ -134,5 +147,5 @@
   }
 
   window.PD = window.PD || {};
-  PD.Net = { create, makeCode, normalizeCode };
+  PD.Net = { create, adopt, makeCode, normalizeCode };
 })();

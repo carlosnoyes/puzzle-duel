@@ -44,6 +44,11 @@
     </div>
 
     <div class="menu-grid">
+      <button class="menu-card quick" id="btn-quick">
+        <span class="mc-icon">⚡</span>
+        <span class="mc-title">Quick Match <span class="badge">Ranked</span></span>
+        <span class="mc-sub" id="qm-sub">Get matched with a random player near your level</span>
+      </button>
       <button class="menu-card primary" id="btn-create">
         <span class="mc-icon">🌐</span>
         <span class="mc-title">Create online room</span>
@@ -160,6 +165,27 @@
     </div>
   </section>
 
+  <!-- ═════════ QUICK MATCH SEARCH ═════════ -->
+  <section class="screen hidden" id="screen-search">
+    <div class="search-card">
+      <div class="radar" id="search-radar"><span>⚡</span></div>
+      <h1 class="search-title" id="search-title">Finding an opponent…</h1>
+      <div class="search-found hidden" id="search-found"></div>
+      <div class="muted" id="search-status"></div>
+      <div class="search-time" id="search-time">0:00</div>
+      <div class="muted small" id="search-rating"></div>
+      <div class="panel search-tips hidden" id="search-tips">
+        <div>Not many players searching right now. Keep waiting, or:</div>
+        <div class="row center">
+          <button class="btn" id="search-bot">🤖 Play the bot</button>
+          <button class="btn" id="search-friend">🌐 Invite a friend</button>
+        </div>
+      </div>
+      <button class="btn" id="search-cancel">Cancel</button>
+      <div class="muted small search-note">Ranked matches: best of 3 · normal difficulty · all puzzles · freeze on.<br>Leaving a match early counts as a loss.</div>
+    </div>
+  </section>
+
   <!-- ═════════ GAME ═════════ -->
   <section class="screen hidden" id="screen-game">
     <div class="hud">
@@ -207,6 +233,7 @@
       <div class="final-emoji" id="final-emoji">🏆</div>
       <h1 id="final-title">Victory!</h1>
       <div class="final-score" id="final-score">3 – 1</div>
+      <div class="final-rating hidden" id="final-rating"></div>
       <div class="final-stats" id="final-stats"></div>
       <table class="history" id="final-history"></table>
       <div class="row center">
@@ -261,6 +288,7 @@
 <script src="js/util.js"></script>
 <script src="js/net.js"></script>
 <script src="js/puzzles.js"></script>
+<script src="js/matchmaker.js"></script>
 <script src="js/app.js"></script>
 <script>
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
