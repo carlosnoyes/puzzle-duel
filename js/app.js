@@ -46,10 +46,26 @@
   const myName = () => ($('name-input').value.trim() || 'Player');
 
   // ─────────────── screens / toasts ───────────────
+  // Back-button support (matters most in the installed app, where Back would otherwise close it):
+  // while off the home screen we keep exactly one extra history entry, and Back returns home.
+  let inApp = false, skipPop = false;
   function show(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
     $('screen-' + id).classList.remove('hidden');
     window.scrollTo(0, 0);
+    if (id !== 'home' && !inApp) { try { history.pushState({ pd: 1 }, ''); inApp = true; } catch (e) {} }
+  }
+  function liveGame() { return !!(S.match && !S.match.over && !$('screen-game').classList.contains('hidden')); }
+  function onBack() {
+    if (skipPop) { skipPop = false; cleanUrl(); return; }
+    if (!inApp) return;
+    inApp = false;
+    if (liveGame()) {
+      const msg = S.ranked ? 'Leave this ranked match? It counts as a loss.' : 'Leave this game?';
+      if (!confirm(msg)) { try { history.pushState({ pd: 1 }, ''); inApp = true; } catch (e) {} return; }
+      if (S.ranked) applyElo(0);
+    }
+    goHome();
   }
   let toastTimer;
   function toast(msg, error) {
@@ -103,7 +119,8 @@
     S.mode = null; S.match = null; S.round = null;
     overlay('result', false); overlay('countdown', false); overlay('handoff', false); overlay('pick', false);
     clearInterval(pickTimer); S.pickFor = null;
-    history.replaceState(null, '', location.pathname + location.search);
+    if (inApp) { inApp = false; skipPop = true; try { history.back(); } catch (e) { skipPop = false; cleanUrl(); } }
+    else cleanUrl();
     renderHome();
     show('home');
   }
@@ -207,8 +224,12 @@
   // ─────────────── networking ───────────────
   function send(m) { if (S.net && (S.mode === 'host' || S.mode === 'guest')) S.net.send(m); }
 
+  // query string to keep in shared links: only the local-testing flag, never ?source=app / ?action=…
+  function linkSearch() { return new URLSearchParams(location.search).get('net') === 'bc' ? '?net=bc' : ''; }
+  function cleanUrl() { try { history.replaceState(history.state, '', location.pathname + linkSearch()); } catch (e) {} }
+
   function inviteLink() {
-    return location.origin + location.pathname + location.search + '#' + S.code;
+    return location.origin + location.pathname + linkSearch() + '#' + S.code;
   }
 
   function startHost() {
@@ -896,6 +917,42 @@
     } else goHome();
   }
 
+  // ─────────────── install as an app ───────────────
+  let installPrompt = null;
+  const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isMacSafari = () => /Macintosh/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|Firefox/.test(navigator.userAgent) && navigator.maxTouchPoints <= 1;
+
+  function updateInstallButton() {
+    const can = !isStandalone() && (installPrompt || isIOS() || isMacSafari());
+    $('btn-install').classList.toggle('hidden', !can);
+    $('install-banner').classList.toggle('hidden', !can || !!store('installBannerDismissed'));
+    document.body.classList.toggle('standalone', isStandalone());
+  }
+
+  async function installApp() {
+    if (installPrompt) {
+      const p = installPrompt; installPrompt = null;
+      p.prompt();
+      try { const r = await p.userChoice; if (r && r.outcome === 'accepted') toast('Installing Puzzle Duel…'); } catch (e) {}
+      updateInstallButton();
+      return;
+    }
+    // iOS / Safari have no install prompt: show the manual steps
+    const steps = $('install-steps'); steps.innerHTML = '';
+    const li = (...c) => steps.appendChild(el('li', null, ...c));
+    if (isIOS()) {
+      li('Tap the ', el('b', null, 'Share'), ' button ', el('span', { class: 'ios-share' }, '⬆'), ' — at the bottom of Safari on iPhone, top right on iPad.');
+      li('Scroll down and tap ', el('b', null, 'Add to Home Screen'), '.');
+      li('Tap ', el('b', null, 'Add'), '. Puzzle Duel appears on your home screen and opens full-screen.');
+      if (!/Safari/.test(navigator.userAgent) || /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent)) li(el('span', { class: 'muted' }, 'Not seeing it? Open this page in Safari and try again.'));
+    } else {
+      li('In the Safari menu bar, choose ', el('b', null, 'File → Add to Dock…'), '.');
+      li('Click ', el('b', null, 'Add'), '. Puzzle Duel opens from your Dock like any other app.');
+    }
+    overlay('install', true);
+  }
+
   // ─────────────── quick match (ranked, no backend) ───────────────
   let mm = null, searchTimer = null;
   const fmtDelta = d => (d >= 0 ? '+' : '') + d;
@@ -1136,7 +1193,7 @@
     const D = S.daily;
     const data = { d: D.date, n: myName(), t: D.mine.times, p: D.mine.prog };
     const enc = btoa(unescape(encodeURIComponent(JSON.stringify(data)))).replace(/=+$/, '');
-    return location.origin + location.pathname + location.search + '#c=' + enc;
+    return location.origin + location.pathname + linkSearch() + '#c=' + enc;
   }
   function parseChallenge(hash) {
     try {
@@ -1386,6 +1443,14 @@
 
     $('btn-daily').onclick = () => { Sound.click(); startDaily(null); };
     $('btn-quick').onclick = () => { Sound.click(); startQuickMatch(); };
+    $('btn-install').onclick = () => { Sound.click(); installApp(); };
+    $('install-close').onclick = () => overlay('install', false);
+    $('banner-install').onclick = () => { Sound.click(); installApp(); };
+    $('banner-close').onclick = () => { store('installBannerDismissed', true); updateInstallButton(); };
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; updateInstallButton(); });
+    window.addEventListener('appinstalled', () => { installPrompt = null; updateInstallButton(); toast('Puzzle Duel installed! 🎉 Open it from your home screen.'); });
+    window.addEventListener('popstate', onBack);
+    updateInstallButton();
     $('search-cancel').onclick = () => { goHome(); };
     $('search-bot').onclick = () => { stopMatchmaker(); S.mode = 'bot'; S.settings.bot = 'adaptive'; openLobby(); };
     $('search-friend').onclick = () => { stopMatchmaker(); startHost(); };
@@ -1401,7 +1466,13 @@
       return;
     }
     const hash = PD.Net.normalizeCode(location.hash.slice(1));
-    if (hash.length >= 4) { $('join-code').value = hash; startJoin(hash); }
+    if (hash.length >= 4) { $('join-code').value = hash; startJoin(hash); return; }
+    // home-screen shortcuts from the installed app
+    const action = new URLSearchParams(location.search).get('action');
+    cleanUrl();
+    if (action === 'quick') startQuickMatch();
+    else if (action === 'daily') startDaily(null);
+    else if (action === 'bot') { S.mode = 'bot'; openLobby(); }
   }
 
   init();

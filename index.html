@@ -9,7 +9,12 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="style.css">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Puzzle Duel">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="application-name" content="Puzzle Duel">
 </head>
 <body>
 <noscript><p style="padding:24px;text-align:center">Puzzle Duel needs JavaScript enabled to play.</p></noscript>
@@ -22,6 +27,13 @@
       <h1>Puzzle Duel</h1>
       <p class="tagline">Race a friend through rapid-fire puzzles. Same puzzle, same time — fastest brain wins.</p>
     </header>
+
+    <div class="install-banner hidden" id="install-banner">
+      <img src="icons/icon-192.png" alt="" width="40" height="40">
+      <div class="ib-text"><b>Get the app</b><span class="muted small">Install Puzzle Duel on your home screen. It opens full-screen, and solo modes work offline.</span></div>
+      <button class="btn small primary" id="banner-install">Install</button>
+      <button class="ib-close" id="banner-close" aria-label="Dismiss">✕</button>
+    </div>
 
     <div class="panel name-panel">
       <label for="name-input">Your name</label>
@@ -93,6 +105,7 @@
     <div class="panel" id="home-stats"></div>
 
     <footer class="foot">
+      <button class="btn small primary hidden" id="btn-install">📲 Install app</button>
       <button class="btn small" id="sound-toggle">🔊 Sound on</button>
     </footer>
   </section>
@@ -271,6 +284,14 @@
       <div class="muted small" id="pick-sub"></div>
       <div class="pick-grid" id="pick-grid"></div>
       <div class="pick-timer" id="pick-timer"></div>
+    </div>
+  </div>
+  <div class="overlay hidden" id="install">
+    <div class="res-card install-card">
+      <img src="icons/icon-192.png" alt="" class="install-icon" width="72" height="72">
+      <div class="res-title">Install Puzzle Duel</div>
+      <ol class="install-steps" id="install-steps"></ol>
+      <button class="btn primary" id="install-close">Got it</button>
     </div>
   </div>
   <div class="overlay hidden" id="handoff">

@@ -36,6 +36,15 @@ Once two players connect, the waiting player releases the ID while keeping the l
 
 **Ratings** use standard Elo: everyone starts at 1000, with K=40 for a player's first 10 games and K=24 after that. Ratings are stored on each device, so there's no account, and a player can edit their own rating if they really want to. Ranked matches always use the same settings: best of 3, normal difficulty, all puzzles, freeze on. Leaving a ranked match counts as a loss, applied the next time that player opens the app. If your opponent leaves, you win by forfeit.
 
+## Install as an app
+Puzzle Duel is an installable web app (PWA). It goes on your home screen or desktop, opens full-screen, and its solo modes (Bot, Practice, Daily, Pass & Play) work offline.
+- **Android (Chrome, Edge, Samsung Internet):** tap **Install** on the banner at the top of the home screen, or **📲 Install app** in the footer.
+- **iPhone / iPad:** in Safari, tap **Share** → **Add to Home Screen** → **Add**. The in-app Install button shows these steps.
+- **Desktop Chrome / Edge:** click the **Install app** button, or the install icon in the address bar.
+- **Mac Safari:** **File → Add to Dock…**
+
+The installed app adds home-screen shortcuts for **Quick Match**, **Daily Challenge** and **Vs Bot** (long-press the icon on Android or right-click on desktop), and the phone's Back button returns to the menu.
+
 ## Rooms
 Two players per room. Any number of rooms can run at once.
 
