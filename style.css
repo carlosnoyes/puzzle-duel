@@ -358,6 +358,11 @@ button.menu-card:hover { transform: translateY(-2px); border-color: var(--border
 .final-rating { font-size: 1.15rem; background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 8px 16px; }
 .final-rating .up { color: var(--good); font-weight: 800; } .final-rating .down { color: var(--bad); font-weight: 800; }
 
+/* QR share */
+.qr-card { gap: 10px; }
+.qr-img { width: min(72vw, 300px); height: min(72vw, 300px); background: #fff; border-radius: 14px; padding: 0; image-rendering: pixelated; box-shadow: 0 0 0 4px rgba(255,255,255,0.08), 0 12px 32px rgba(0,0,0,0.45); }
+.qr-url { font-size: 0.72rem; color: var(--dim); word-break: break-all; max-width: 300px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+
 /* Install */
 .install-banner { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid #4a4ab0; background: linear-gradient(135deg, rgba(58,168,224,0.16), rgba(124,92,240,0.16)); }
 .install-banner img { border-radius: 10px; flex-shrink: 0; }

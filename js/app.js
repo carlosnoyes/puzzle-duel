@@ -877,6 +877,7 @@
     }
     $('btn-rematch').classList.toggle('hidden', S.mode === 'daily');
     $('btn-share-result').classList.toggle('hidden', S.mode === 'practice');
+    $('btn-share-qr').classList.toggle('hidden', S.mode !== 'daily');
     $('btn-share-result').textContent = '📋 Share result';
     if (S.mode === 'daily') dailyFinished();
     if (S.mode === 'practice') practiceFinished();
@@ -915,6 +916,32 @@
       if (S.mode === 'host') send({ t: 'lobby' });
       abortMatch(); openLobby();
     } else goHome();
+  }
+
+  // ─────────────── QR code sharing ───────────────
+  // Dark modules on a white background with a 4-module quiet zone, as scanners expect.
+  function qrDataUrl(text) {
+    if (typeof qrcode !== 'function') return null;
+    const qr = qrcode(0, 'M');   // auto size, medium error correction
+    qr.addData(text);
+    qr.make();
+    const n = qr.getModuleCount(), q = 4, size = n + q * 2;
+    let d = '';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c + q} ${r + q}h1v1h-1z`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+
+  let qrText = '';
+  function showQR(url, title, sub) {
+    const src = qrDataUrl(url);
+    if (!src) { toast('QR code unavailable — copy the link instead.', true); return; }
+    qrText = url;
+    $('qr-img').src = src;
+    $('qr-title').textContent = title;
+    $('qr-sub').textContent = sub || '';
+    $('qr-url').textContent = url.length > 90 ? url.slice(0, 87) + '…' : url;
+    overlay('qr', true);
   }
 
   // ─────────────── install as an app ───────────────
@@ -1411,6 +1438,11 @@
       try { await navigator.clipboard.writeText(link); toast('Invite link copied!'); }
       catch (e) { prompt('Copy this link:', link); }
     };
+    $('qr-link').onclick = () => showQR(inviteLink(), 'Scan to join my room', `Room ${S.code} · point your friend's phone camera at this code`);
+    $('btn-share-qr').onclick = () => showQR(challengeLink(), 'Scan to take my challenge', 'Your friend races your ghost through today’s puzzles');
+    $('share-app').onclick = () => showQR(location.origin + location.pathname + linkSearch(), 'Scan to play Puzzle Duel', 'Open it on your phone, then tap Install to add it to your home screen');
+    $('qr-close').onclick = () => overlay('qr', false);
+    $('qr-copy').onclick = async () => { try { await navigator.clipboard.writeText(qrText); toast('Link copied!'); } catch (e) { prompt('Copy this link:', qrText); } };
     $('share-link').onclick = async () => {
       const link = inviteLink();
       if (navigator.share) { try { await navigator.share({ title: 'Puzzle Duel', text: `Race me in Puzzle Duel! Room ${S.code}`, url: link }); } catch (e) {} }

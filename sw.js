@@ -1,8 +1,8 @@
 /* Puzzle Duel service worker: network-first so updates land immediately, cache fallback for offline play. */
-const CACHE = 'pduel-v3';
+const CACHE = 'pduel-v4';
 const ASSETS = ['./', 'index.html', 'style.css', 'favicon.svg', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-192.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'icons/icon.svg',
-  'js/util.js', 'js/net.js', 'js/puzzles.js', 'js/matchmaker.js', 'js/app.js', 'vendor/peerjs.min.js'];
+  'js/util.js', 'js/net.js', 'js/puzzles.js', 'js/matchmaker.js', 'js/app.js', 'vendor/peerjs.min.js', 'vendor/qrcode.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

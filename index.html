@@ -106,6 +106,7 @@
 
     <footer class="foot">
       <button class="btn small primary hidden" id="btn-install">📲 Install app</button>
+      <button class="btn small" id="share-app">📱 Share the game</button>
       <button class="btn small" id="sound-toggle">🔊 Sound on</button>
     </footer>
   </section>
@@ -123,6 +124,7 @@
       <div class="room-code" id="room-code">·····</div>
       <div class="row center">
         <button class="btn primary" id="copy-link">📋 Copy invite link</button>
+        <button class="btn" id="qr-link">📱 QR code</button>
         <button class="btn" id="share-link">📤 Share</button>
       </div>
       <div class="invite-hint" id="invite-hint">Send the link to a friend. Keep this tab open.</div>
@@ -252,6 +254,7 @@
       <div class="row center">
         <button class="btn primary big" id="btn-rematch">🔁 Rematch</button>
         <button class="btn big" id="btn-share-result">📋 Share result</button>
+        <button class="btn big hidden" id="btn-share-qr">📱 QR code</button>
         <button class="btn big" id="btn-final-home">Home</button>
       </div>
       <div class="muted small" id="rematch-hint"></div>
@@ -286,6 +289,18 @@
       <div class="pick-timer" id="pick-timer"></div>
     </div>
   </div>
+  <div class="overlay hidden" id="qr">
+    <div class="res-card qr-card">
+      <div class="res-title" id="qr-title">Scan to join</div>
+      <div class="muted small" id="qr-sub"></div>
+      <img id="qr-img" class="qr-img" alt="QR code">
+      <div class="qr-url" id="qr-url"></div>
+      <div class="row center">
+        <button class="btn" id="qr-copy">📋 Copy link</button>
+        <button class="btn primary" id="qr-close">Done</button>
+      </div>
+    </div>
+  </div>
   <div class="overlay hidden" id="install">
     <div class="res-card install-card">
       <img src="icons/icon-192.png" alt="" class="install-icon" width="72" height="72">
@@ -306,6 +321,7 @@
 </div>
 
 <script src="vendor/peerjs.min.js"></script>
+<script src="vendor/qrcode.js"></script>
 <script src="js/util.js"></script>
 <script src="js/net.js"></script>
 <script src="js/puzzles.js"></script>

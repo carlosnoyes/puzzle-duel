@@ -24,6 +24,7 @@ Each puzzle has Easy, Normal and Hard levels.
 - **❄️ Freeze power-up**: reach 50% progress to earn one freeze per round, which locks your rival's board for 3 seconds (Space bar or button)
 - Penalties for wrong taps and mine hits; time limit per round (when time runs out, most progress wins)
 - Head-to-head records per rival, personal bests, match stats, shareable result summaries
+- **QR codes** for room invites, daily challenge links and the game itself: scan with a phone camera to join
 - Installable PWA with offline fallback (bot, practice, daily and pass-and-play work offline)
 
 ## Quick Match: how it works without a backend
@@ -49,7 +50,7 @@ The installed app adds home-screen shortcuts for **Quick Match**, **Daily Challe
 Two players per room. Any number of rooms can run at once.
 
 ## Development
-- Plain HTML, CSS and JS. The only dependency is the vendored PeerJS (MIT, see `vendor/peerjs.LICENSE`).
+- Plain HTML, CSS and JS. Dependencies are vendored: PeerJS (MIT, see `vendor/peerjs.LICENSE`) and qrcode-generator by Kazuhiko Arase (MIT, notice in `vendor/qrcode.js`).
 - Files: `index.html`, `style.css`, `js/util.js` (seeded RNG, sound, helpers), `js/net.js` (networking), `js/matchmaker.js` (Quick Match and Elo), `js/puzzles.js` (all puzzles), `js/app.js` (lobby and match flow), `sw.js` (offline cache).
 - To test online play without internet, add `?net=bc` to the URL. This switches to a BroadcastChannel transport between two tabs of the same browser (open the invite link in a second tab).
 
