@@ -40,7 +40,7 @@
     if (S.mode === 'local') return role === 'host' ? myName() : S.local.p2;
     if (S.mode === 'bot') return role === 'host' ? myName() : BOT_NAMES[S.settings.bot];
     if (S.mode === 'daily') return role === 'host' ? myName() : (S.daily && S.daily.vs ? S.daily.vs.n : 'Par ⏱');
-    if (S.mode === 'practice') return role === 'host' ? myName() : (S.practice && S.practice.best ? 'Your best 👻' : 'Par ⏱');
+    if (S.mode === 'practice') return role === 'host' ? myName() : (S.practice && S.practice.best ? `👻 Your best ${fmtTime(S.practice.best)}` : `⏱ Par ${fmtTime(practicePar())}`);
     return role === myRole() ? myName() : (S.oppName || 'Rival');
   };
   const myName = () => ($('name-input').value.trim() || 'Player');
@@ -471,7 +471,8 @@
     const R = S.round; if (!R || R.resolved) return;
     if (R.times[role] == null) R.times[role] = ms;
     if (S.mode === 'local') return; // local resolves after both turns
-    if (R.times.host != null && R.times.guest != null) hostResolve();
+    // practice: nobody to wait for, so the player's finish settles the round immediately
+    if (S.mode === 'practice' || (R.times.host != null && R.times.guest != null)) hostResolve();
     else if (!R.grace) R.grace = setTimeout(hostResolve, 900);
   }
 
@@ -652,7 +653,7 @@
       if (S.mode === 'bot') startBot(R);
       if (S.mode === 'daily' || S.mode === 'practice') startDailyGhost(R);
       if (S.mode === 'local' && R.turn === 'guest') startGhost(R);
-      if (isAuthority() && S.mode !== 'local') {
+      if (isAuthority() && S.mode !== 'local' && S.mode !== 'practice') {
         R.limitTimer = setTimeout(() => { if (S.round === R) { timeUp(); hostResolve(); } }, R.limit * 1000 + 600);
       }
       tickTimer();
@@ -715,7 +716,7 @@
       if (R.active) {
         const now = performance.now();
         const t = now - R.startAt;
-        const left = R.limit * 1000 - t;
+        const left = S.mode === 'practice' ? Infinity : R.limit * 1000 - t; // practice: no time limit
         const tm = $('hud-timer');
         tm.textContent = left < 30000 ? fmtTime(Math.max(0, left)) : fmtTime(t);
         tm.classList.toggle('low', left < 30000);
@@ -763,7 +764,9 @@
       }
     }
     $('cd-ctx').textContent = ctxTxt;
-    $('cd-limit').textContent = R ? `${R.diff} · ${Math.floor(R.limit / 60)}:${String(R.limit % 60).padStart(2, '0')} time limit` : '';
+    $('cd-limit').textContent = !R ? '' : S.mode === 'practice'
+      ? `${R.diff} · no time limit · ${S.practice.best ? 'your best: ' + fmtTime(S.practice.best) : 'par: ' + fmtTime(practicePar())}`
+      : `${R.diff} · ${Math.floor(R.limit / 60)}:${String(R.limit % 60).padStart(2, '0')} time limit`;
     $('cd-icon').textContent = pz.icon;
     $('cd-name').textContent = pz.name;
     $('cd-how').textContent = pz.how;
@@ -790,7 +793,13 @@
     updateScores();
     const me = myRole(), opp = oppRole();
     let emoji, title, cls = '';
-    if (!m.winner) { emoji = '🤝'; title = 'Draw!'; }
+    if (S.mode === 'practice') {
+      const t = m.times.host, ref = m.times.guest != null ? m.times.guest : (S.practice.best || practicePar());
+      if (t == null) { emoji = '🏳️'; title = 'Gave up'; }
+      else if (t < ref) { emoji = '🏅'; title = S.practice.best ? 'New best!' : 'Beat par!'; cls = 'win'; Sound.win(); }
+      else { emoji = '⏱'; title = `Solved, ${fmtTime(t - ref)} off ${S.practice.best ? 'your best' : 'par'}`; Sound.good(); }
+    }
+    else if (!m.winner) { emoji = '🤝'; title = 'Draw!'; }
     else if (S.mode === 'local') { emoji = '🏅'; title = `${nameOf(m.winner)} takes it!`; cls = m.winner === 'host' ? 'win' : 'lose'; }
     else if (m.winner === me) { emoji = '🎉'; title = 'Round won!'; cls = 'win'; Sound.win(); }
     else { emoji = '😖'; title = 'Round lost'; cls = 'lose'; Sound.lose(); }
@@ -812,7 +821,7 @@
     times.append(tCell(left), tCell(left === 'host' ? 'guest' : 'host'));
     $('res-score').textContent = `${nameOf(left)} ${m.scores[left]} – ${m.scores[left === 'host' ? 'guest' : 'host']} ${nameOf(left === 'host' ? 'guest' : 'host')}`;
     const th = m.times.host, tg = m.times.guest;
-    const margin = th != null && tg != null ? ` · won by ${fmtTime(Math.abs(th - tg))}` : '';
+    const margin = S.mode !== 'practice' && th != null && tg != null ? ` · won by ${fmtTime(Math.abs(th - tg))}` : '';
     $('res-next').textContent = (m.over ? 'Match over!' : 'Next round starting…') + margin;
     overlay('result', true);
     if (m.over) {
@@ -1147,6 +1156,7 @@
   }
 
   // ─────────────── practice ───────────────
+  function practicePar() { const Pr = S.practice; return Pr ? P.byId[Pr.pid].bot[Pr.diff] * 1000 : null; }
   function startPractice(pid) {
     teardownNet();
     const diff = S.settings.diff || 'normal';
@@ -1165,7 +1175,8 @@
     if (t != null && (!Pr.best || t < Pr.best)) { $('final-emoji').textContent = '🏅'; $('final-title').textContent = Pr.best ? 'New personal best!' : 'First time set!'; confetti(); }
     else if (t != null) { $('final-emoji').textContent = '⏱'; $('final-title').textContent = 'Solved!'; }
     else { $('final-emoji').textContent = '🧠'; $('final-title').textContent = 'Keep practising'; }
-    $('rematch-hint').innerHTML = `Your time: <b>${t != null ? fmtTime(t) : 'DNF'}</b>` + (Pr.best ? ` · previous best: ${fmtTime(Pr.best)}` : '');
+    const gap = t != null && Pr.best ? ` (${t < Pr.best ? '−' : '+'}${fmtTime(Math.abs(t - Pr.best))})` : '';
+    $('rematch-hint').innerHTML = `Your time: <b>${t != null ? fmtTime(t) : 'DNF'}</b>${gap}` + (Pr.best ? ` · previous best: ${fmtTime(Pr.best)}` : ` · par: ${fmtTime(practicePar())}`);
   }
 
   // ─────────────── daily challenge ───────────────
@@ -1198,7 +1209,19 @@
       if (t == null) { const p = Math.min(finalP, el2 / (R.limit * 1000) * finalP); R.prog.guest = p; setBar('guest', p); return; }
       const p = Math.min(1, el2 / t);
       R.prog.guest = p; setBar('guest', p);
-      if (el2 >= t) { clearInterval(R.bot); markFinished('guest', t); hostFinish('guest', t); }
+      if (el2 >= t) {
+        clearInterval(R.bot);
+        if (S.mode === 'practice') {
+          // Practice: the ghost is just a pace marker. Record its time for the comparison,
+          // but keep the round going until the player finishes (or gives up).
+          R.times.guest = t;
+          setBar('guest', 1);
+          document.querySelector('.hud-player.opp').classList.add('finished');
+          if (R.active) toast(`${S.practice.best ? '👻 Your best' : '⏱ Par'} (${fmtTime(t)}) just finished. Keep going!`);
+          return;
+        }
+        markFinished('guest', t); hostFinish('guest', t);
+      }
     }, 100);
   }
   function dailyFinished() {
