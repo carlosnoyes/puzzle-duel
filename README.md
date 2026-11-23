@@ -6,7 +6,7 @@ It's a static site: no build step and no backend. Host it on GitHub Pages (or an
 
 ## Ways to play
 - **⚡ Quick Match (ranked)**: get paired with a random player near your skill level, with no account or sign-in. See below.
-- **Online with a friend**: create a room and send the link or the 5-letter code. Players connect peer-to-peer over WebRTC, using the free PeerJS broker (vendored in `vendor/`).
+- **Online with a friend**: create a room and send the link, the 5-letter code, or show the QR code. See *How friend rooms connect* below.
 - **Daily Challenge**: everyone gets the same 3 puzzles each day. Share a challenge link and your friend races your ghost asynchronously. Tracks daily streaks.
 - **Vs Bot**: Rookie, Pro, Master, or **Adaptive**. The Adaptive bot speeds up when you win and slows down when you lose, settling at your level.
 - **Pass & Play**: two players on one device. Player 2 races player 1's recorded ghost.
@@ -26,6 +26,19 @@ Each puzzle has Easy, Normal and Hard levels.
 - Head-to-head records per rival, personal bests, match stats, shareable result summaries
 - **QR codes** for room invites, daily challenge links and the game itself: scan with a phone camera to join
 - Installable PWA with offline fallback (bot, practice, daily and pass-and-play work offline)
+
+## How friend rooms connect
+Rooms use two independent routes, so a game still connects when one of them is blocked:
+1. **Direct (WebRTC via PeerJS).** This is the fastest route. The free PeerJS cloud server introduces the two phones, and STUN and TURN servers help them reach each other.
+2. **Relay (MQTT over secure WebSockets).** This is the backup route. Messages pass through public MQTT brokers (`broker.emqx.io`, `broker.hivemq.com`) on topics named after the room code. It only needs a normal web connection, so it works behind strict mobile-carrier networks and firewalls, and when the PeerJS server is down. The relay client is in `js/relay.js`.
+
+The host listens on both routes. The guest tries the direct route first and also tries the relay if the direct link hasn't opened within about 3.5 seconds. Whichever route connects first carries the game, and the ping indicator says "relay" when the backup is in use. Relay traffic goes through public servers, but the game sends nothing sensitive: names, progress and emotes.
+
+Other safeguards:
+- The host keeps the **same room code** when its connection drops, for example when switching apps to send the code, and reconnects as soon as it's back on screen.
+- The share buttons stay disabled until the room is really open. The lobby shows which routes are open.
+- A guest gets a clear error after 25 seconds instead of an endless spinner.
+- The join box accepts a pasted invite link as well as a code. Opening an invite link in an already-open page joins the room.
 
 ## Quick Match: how it works without a backend
 The free PeerJS broker only lets you register an ID and connect to an ID, so it doubles as a tiny waiting list. Every rating band of 200 points has a well-known waiting-room ID.

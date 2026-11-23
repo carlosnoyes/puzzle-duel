@@ -84,7 +84,8 @@
 
     _openPeer(id) {
       return new Promise((resolve, reject) => {
-        const p = id ? new Peer(id, { debug: 0 }) : new Peer({ debug: 0 });
+        const opts = (PD.Net && PD.Net.PEER_OPTS) || { debug: 0 };
+        const p = id ? new Peer(id, opts) : new Peer(opts);
         let settled = false;
         p.on('open', () => { if (!settled) { settled = true; resolve(p); } });
         p.on('error', err => {

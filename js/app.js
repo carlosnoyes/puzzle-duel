@@ -232,19 +232,30 @@
     return location.origin + location.pathname + linkSearch() + '#' + S.code;
   }
 
+  // share buttons only work once the room is really open
+  function setShareEnabled(on) { ['copy-link', 'qr-link', 'share-link'].forEach(id => { $(id).disabled = !on; }); }
+
+  function hostStatusText(st) {
+    if (!st.ready) return st.slow ? '⚠️ Still opening the room… check your internet connection.' : 'Opening room…';
+    const routes = [st.p2p && 'direct', st.relay && 'relay'].filter(Boolean).join(' + ');
+    return `🟢 Room open (${routes}). Send the link or show the QR code. Keep Puzzle Duel open on screen until your friend joins.`;
+  }
+
   function startHost() {
     S.mode = 'host';
     S.code = PD.Net.makeCode();
     $('room-code').textContent = S.code;
-    $('invite-hint').textContent = 'Connecting to matchmaking…';
+    $('invite-hint').textContent = 'Opening room…';
+    setShareEnabled(false);
     openLobby();
     S.net = PD.Net.create({
-      onReady: () => { $('invite-hint').textContent = 'Send the link to a friend. Keep this tab open.'; },
+      onReady: () => { setShareEnabled(true); },
+      onStatus: st => { if (typeof st === 'object' && S.mode === 'host') { $('invite-hint').textContent = hostStatusText(st); setShareEnabled(st.ready); } },
       onOpen: () => {},
       onMessage: onMessage,
       onClose: () => onPeerLeft(),
       onError: (msg, type) => {
-        if (type === 'unavailable-id') { teardownNet(); startHost(); return; }
+        if (type === 'unavailable-id') { teardownNet(); startHost(); return; } // code clash before the room opened
         toast(msg, true);
         $('invite-hint').textContent = msg;
       },
@@ -262,8 +273,8 @@
     openLobby();
     S.net = PD.Net.create({
       onReady: () => {},
-      onOpen: () => send({ t: 'hello', name: myName(), v: VERSION }),
-      onStatus: msg => { $('start-hint').textContent = msg; },
+      onOpen: () => { send({ t: 'hello', name: myName(), v: VERSION }); $('invite-hint').textContent = 'Connected! Waiting for the host…'; },
+      onStatus: msg => { if (typeof msg === 'string') { $('start-hint').textContent = msg; $('invite-hint').textContent = msg; } },
       onMessage: onMessage,
       onClose: () => onPeerLeft(),
       onError: (msg) => { toast(msg, true); goHome(); },
@@ -317,11 +328,13 @@
     hbTimer = setInterval(() => {
       if (!S.net || !S.connected) return;
       send({ t: 'ping', ts: Date.now() });
-      if (Date.now() - S.lastSeen > 15000) { toast('Connection lost.', true); onPeerLeft(); }
+      const limit = S.match && !S.match.over ? 20000 : 60000;
+      if (Date.now() - S.lastSeen > limit) { toast('Connection lost.', true); onPeerLeft(); }
     }, 2000);
   }
   function showPing() {
-    const txt = S.connected && S.rtt != null ? `📶 ${S.rtt} ms` : '';
+    const via = S.net && S.net.via === 'relay' ? ' · relay' : '';
+    const txt = S.connected && S.rtt != null ? `📶 ${S.rtt} ms${via}` : '';
     const q = S.rtt == null ? '' : S.rtt < 120 ? 'good' : S.rtt < 300 ? 'ok' : 'bad';
     ['hud-ping', 'lobby-ping'].forEach(id => { const e = $(id); if (e) { e.textContent = txt; e.className = 'ping ' + q; } });
   }
@@ -1492,9 +1505,28 @@
       R.puzzle.onKey(e);
     });
 
-    const onLeave = () => { if (S.unloading) return; S.unloading = true; if (S.net) try { S.net.send({ t: 'bye' }); } catch (e) {} };
+    // Really leaving (closing/reloading). A page that is only hidden or put in the back/forward
+    // cache (persisted) may come back, so it must not count as leaving.
+    const onLeave = e => { if (S.unloading || (e && e.persisted)) return; S.unloading = true; if (S.net) try { S.net.send({ t: 'bye' }); } catch (err) {} };
     window.addEventListener('beforeunload', onLeave);
     window.addEventListener('pagehide', onLeave);
+    window.addEventListener('pageshow', () => { S.unloading = false; });
+    // Coming back to the app: reconnect at once and don't count the time away as a dropout.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      S.lastSeen = Date.now();
+      if (S.net && S.net.wake) S.net.wake();
+      if (S.connected) send({ t: 'ping', ts: Date.now() });
+    });
+    // An invite link opened while the game is already open only changes the #hash.
+    window.addEventListener('hashchange', () => {
+      const code = PD.Net.normalizeCode(location.hash.slice(1));
+      if (code.length < 4 || location.hash.startsWith('#c=') || (S.code === code && S.net)) return;
+      if (S.connected && S.match && !S.match.over && !confirm('Leave this game and join room ' + code + '?')) return;
+      stopMatchmaker(); teardownNet(); abortMatch();
+      $('join-code').value = code;
+      startJoin(code);
+    });
 
     $('btn-daily').onclick = () => { Sound.click(); startDaily(null); };
     $('btn-quick').onclick = () => { Sound.click(); startQuickMatch(); };

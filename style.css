@@ -51,7 +51,7 @@ button:focus-visible, input:focus-visible, .pool-item:focus-visible { outline: 2
 }
 .btn:hover { border-color: var(--border2); background: var(--surface3); }
 .btn:active { transform: scale(0.97); }
-.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.6); }
 .btn.primary { background: linear-gradient(135deg, #3aa8e0, #7c5cf0); border-color: transparent; color: #fff; font-weight: 600; }
 .btn.primary:hover { filter: brightness(1.1); }
 .btn.big { padding: 13px 26px; font-size: 1.05rem; }
