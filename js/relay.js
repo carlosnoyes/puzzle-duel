@@ -206,5 +206,5 @@
   }
 
   window.PD = window.PD || {};
-  PD.Relay = { RelayHost, RelayJoin, MqttLink, available: typeof WebSocket !== 'undefined' };
+  PD.Relay = { RelayHost, RelayJoin, MqttLink, brokers, available: typeof WebSocket !== 'undefined' };
 })();

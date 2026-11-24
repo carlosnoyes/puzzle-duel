@@ -23,6 +23,7 @@
     { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
   ];
   const PEER_OPTS = { debug: 0, config: { iceServers: ICE_SERVERS } };
+  const L = m => { if (PD.log) PD.log(m); }; // connection log for the diagnostics report
 
   // read once at load: the app tidies the URL (drops ?source=app etc.) after starting
   const PARAMS = new URLSearchParams(location.search);
@@ -70,11 +71,11 @@
       if (this.stopped) return;
       clearTimeout(this.timer);
       const p = this.peer = new Peer(PREFIX + this.code, PEER_OPTS);
-      p.on('open', () => { this.ready = true; this.everReady = true; this.delay = 1000; this.onState(); });
+      p.on('open', () => { this.ready = true; this.everReady = true; this.delay = 1000; L('host: direct route open'); this.onState(); });
       p.on('connection', conn => {
         conn.on('open', () => this.onChannel(peerChannel(conn), (conn.metadata && conn.metadata.g) || conn.peer, 'p2p'));
       });
-      p.on('disconnected', () => { this.ready = false; this.onState(); this._retry(); });
+      p.on('disconnected', () => { this.ready = false; L('host: direct route disconnected, reconnecting'); this.onState(); this._retry(); });
       p.on('close', () => { this.ready = false; this.onState(); });
       p.on('error', err => {
         const type = err && err.type;
@@ -82,6 +83,7 @@
         if (type === 'unavailable-id' && !this.everReady) { this.onTaken(); return; } // genuine code clash on first open
         // anything else (incl. "ID taken" while the server still holds our old session): keep the
         // same code and try again shortly — never silently switch to a new room code
+        L('host: direct route error ' + type + ', retrying');
         this.ready = false; this.onState(); this._retry();
       });
     }
@@ -114,11 +116,13 @@
         if (type === 'peer-unavailable') {
           // the host may be reconnecting (e.g. their app was briefly in the background): keep trying
           this.misses++;
+          L('join: direct route found no host (try ' + this.misses + ')');
           if (this.misses === 2) this.onMissing();
           clearTimeout(this.attemptTimer);
           this.retryTimer = setTimeout(() => this._connect(), 2000);
           return;
         }
+        L('join: direct route error ' + type);
         this.onFail(peerErrorText(type, err && err.message));
       });
     }
@@ -127,7 +131,7 @@
       const conn = this.peer.connect(PREFIX + this.code, { reliable: true, serialization: 'json', metadata: { g: this.g } });
       // The host was found but the direct link never opened: usually a NAT/firewall in the way.
       clearTimeout(this.attemptTimer);
-      this.attemptTimer = setTimeout(() => { if (!conn.open && !this.done) { try { conn.close(); } catch (e) {} this.onFail('Direct connection blocked by the network.'); } }, 9000);
+      this.attemptTimer = setTimeout(() => { if (!conn.open && !this.done) { try { conn.close(); } catch (e) {} L('join: direct link never opened (network blocking it)'); this.onFail('Direct connection blocked by the network.'); } }, 9000);
       conn.on('open', () => {
         clearTimeout(this.attemptTimer);
         if (this.stopped || this.done) { try { conn.close(); } catch (e) {} return; }
@@ -143,8 +147,10 @@
   // ── The transport the app uses: host or join a room over both routes ──
   class RoomTransport {
     constructor(h) {
-      this.h = h; this.active = null; this.activeGuest = null; this.parts = []; this.closed = false;
+      this.h = h; this.active = null; this.parts = []; this.closed = false;
       this.code = null; this.role = null;
+      this.members = new Map(); // host: guestId -> { ch, via }
+      this.capacity = 1;        // guests allowed (1 for a duel, up to 7 for a party room)
     }
 
     // ---- host ----
@@ -162,21 +168,29 @@
     }
     _hostState() {
       const st = { ready: this.parts.some(p => p.ready), p2p: !!(this.p2p && this.p2p.ready), relay: !!(this.relay && this.relay.ready) };
+      if (st.relay !== this.lastRelay) { this.lastRelay = st.relay; L('host: relay route ' + (st.relay ? 'open' : 'down')); }
       if (st.ready && !this.wasReady) { this.wasReady = true; this.h.onReady && this.h.onReady(); }
       this.h.onStatus && this.h.onStatus(st);
     }
     _hostChannel(ch, guestId, via) {
       if (this.closed) { ch.close(); return; }
       ch.onMessage = m => {
-        if (this.active !== ch) {
-          if (!this.active) { this.active = ch; this.activeGuest = guestId; this.via = via; }
-          else if (guestId === this.activeGuest) { const old = this.active; this.active = ch; this.via = via; old.onClose = null; old.close(); } // same friend, better route
-          else { ch.send({ t: 'full' }); setTimeout(() => ch.close(), 300); return; } // someone else: room is full
+        const cur = this.members.get(guestId);
+        if (!cur || cur.ch !== ch) {
+          if (cur) { cur.ch.onClose = null; cur.ch.close(); cur.ch = ch; cur.via = via; } // same friend, better route
+          else if (this.members.size >= this.capacity) { ch.send({ t: 'full', max: this.capacity + 1 }); setTimeout(() => ch.close(), 300); return; }
+          else { this.members.set(guestId, { ch, via }); L('host: friend connected via ' + via + ' (' + this.members.size + '/' + this.capacity + ')'); }
         }
-        this.h.onMessage && this.h.onMessage(m);
+        this.h.onMessage && this.h.onMessage(m, guestId);
       };
-      ch.onClose = () => { if (this.active === ch) { this.active = null; this.activeGuest = null; this.h.onClose && this.h.onClose(); } };
+      ch.onClose = () => {
+        const cur = this.members.get(guestId);
+        if (cur && cur.ch === ch) { L('host: friend\'s connection closed'); this.members.delete(guestId); this.h.onClose && this.h.onClose(guestId); }
+      };
     }
+    // route of the (first) connected friend, for the ping label
+    get via() { if (this.role === 'host') { const f = this.members.values().next().value; return f && f.via; } return this._via; }
+    set via(v) { this._via = v; }
 
     // ---- join ----
     join(code) {
@@ -187,6 +201,7 @@
       const startRelay = () => {
         if (this.relayJoin || this.active || this.closed || !relayAllowed()) return;
         this.status('Trying the backup relay…');
+        L('join: trying relay');
         this.relayJoin = new PD.Relay.RelayJoin(code, this.g, { onChannel: ch => onChannel(ch, 'relay') });
         this.relayJoin.start();
       };
@@ -200,8 +215,10 @@
         this.relayTimer = setTimeout(startRelay, RELAY_AFTER);
       } else startRelay();
       this.status('Connecting…');
+      L('join: room ' + code + (p2pAllowed() ? '' : ' (no WebRTC here, relay only)'));
       this.joinTimer = setTimeout(() => {
         if (this.active || this.closed) return;
+        L('join: gave up after ' + JOIN_TIMEOUT / 1000 + 's');
         const msg = 'Couldn’t reach that room. Check the code, and make sure your friend still has the room open on their screen.';
         this.h.onError && this.h.onError(msg, 'timeout');
       }, JOIN_TIMEOUT);
@@ -210,26 +227,40 @@
     _joinChannel(ch, via) {
       if (this.active || this.closed) { ch.close(); return; }
       this.active = ch; this.via = via;
+      L('join: connected via ' + via);
       clearTimeout(this.joinTimer); clearTimeout(this.relayTimer);
       // drop the route we didn't use
       if (via === 'p2p' && this.relayJoin) { this.relayJoin.stop(); this.relayJoin = null; }
       if (via === 'relay' && this.p2pJoin) { this.p2pJoin.destroy(); this.p2pJoin = null; }
       ch.onMessage = m => {
-        if (m && m.t === 'full') { this.h.onError && this.h.onError('That room already has two players.', 'full'); return; }
+        if (m && m.t === 'full') { this.h.onError && this.h.onError(m.max > 2 ? `That room is full (${m.max} players).` : 'That room already has two players.', 'full'); return; }
         this.h.onMessage && this.h.onMessage(m);
       };
-      ch.onClose = kind => { if (this.active === ch) { this.active = null; this.h.onClose && this.h.onClose(); } };
+      ch.onClose = kind => { if (this.active === ch) { L('join: connection closed' + (kind ? ' (' + kind + ')' : '')); this.active = null; this.h.onClose && this.h.onClose(); } };
       this.h.onOpen && this.h.onOpen(via);
     }
 
     // ---- common ----
-    send(msg) { if (this.active) this.active.send(msg); }
-    get connected() { return !!this.active; }
+    // host: send to one friend (guestId) or all of them; guest: send to the host
+    send(msg, guestId) {
+      if (this.role !== 'host') { if (this.active) this.active.send(msg); return; }
+      if (guestId) { const m = this.members.get(guestId); if (m) m.ch.send(msg); return; }
+      this.members.forEach(m => m.ch.send(msg));
+    }
+    get connected() { return this.role === 'host' ? this.members.size > 0 : !!this.active; }
     wake() { this.parts.forEach(p => p.wake && p.wake()); if (this.relayJoin) this.relayJoin.wake(); }
-    drop() { const a = this.active; this.active = null; this.activeGuest = null; if (a) { a.onClose = null; a.close(); } }
+    // host: disconnect one friend (or everyone); guest: drop the link to the host
+    drop(guestId) {
+      if (this.role === 'host') {
+        [...this.members.entries()].forEach(([g, m]) => { if (!guestId || g === guestId) { this.members.delete(g); m.ch.onClose = null; try { m.ch.close(); } catch (e) {} } });
+        return;
+      }
+      const a = this.active; this.active = null; if (a) { a.onClose = null; a.close(); }
+    }
     close() {
       this.closed = true;
       clearTimeout(this.joinTimer); clearTimeout(this.relayTimer); clearTimeout(this.openTimer);
+      this.drop();
       const a = this.active; this.active = null;
       if (a) { a.onClose = null; try { a.close(); } catch (e) {} }
       this.parts.forEach(p => p.stop());

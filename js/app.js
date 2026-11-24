@@ -71,7 +71,8 @@
   function toast(msg, error) {
     const t = $('toast');
     t.textContent = msg; t.className = 'toast' + (error ? ' error' : '');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 3200);
+    // longer messages stay up longer so they can actually be read
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), Math.max(3200, String(msg).length * 70));
   }
   function overlay(id, on) { $(id).classList.toggle('hidden', !on); }
 
@@ -112,6 +113,7 @@
   const stat = (v, l) => el('div', { class: 'stat' }, el('div', { class: 'stat-v' }, String(v)), el('div', { class: 'stat-l' }, l));
 
   function goHome() {
+    if (S.party) { S.party.leave(); S.party = null; }
     stopMatchmaker();
     S.ranked = null;
     teardownNet();
@@ -133,17 +135,23 @@
 
   // ─────────────── lobby ───────────────
   function openLobby() {
-    const online = S.mode === 'host' || S.mode === 'guest';
+    const party = !!S.party;
+    const online = S.mode === 'host' || S.mode === 'guest' || party;
+    $('screen-lobby').classList.toggle('party-lobby', party);
     $('invite-panel').classList.toggle('hidden', !online);
     $('bot-setting').classList.toggle('hidden', S.mode !== 'bot');
-    $('power-setting').classList.toggle('hidden', S.mode === 'local');
-    $('lobby-title').textContent = S.mode === 'bot' ? 'Vs Bot' : S.mode === 'local' ? 'Pass & Play' : 'Online room';
+    $('power-setting').classList.toggle('hidden', S.mode === 'local' || party);
+    $('order-setting').classList.toggle('hidden', party);
+    $('lobby-title').textContent = party ? 'Party room' : S.mode === 'bot' ? 'Vs Bot' : S.mode === 'local' ? 'Pass & Play' : 'Online room';
+    // in a party, "rounds" is a fixed number of rounds rather than best-of
+    document.querySelectorAll('[data-setting=rounds] button').forEach(b => { b.textContent = (party ? '' : 'Best of ') + b.dataset.v + (party ? ' rounds' : ''); });
     $('lobby-me').textContent = myName();
     $('lobby-me-role').textContent = S.mode === 'guest' ? 'Guest' : S.mode === 'local' ? 'Player 1' : 'Host';
     renderOppCard();
     renderSettings();
     updateStartButton();
     show('lobby');
+    if (party) S.party.renderLobby();
   }
 
   function renderOppCard() {
@@ -168,7 +176,7 @@
   }
 
   function renderSettings() {
-    const locked = S.mode === 'guest';
+    const locked = S.mode === 'guest' || S.mode === 'party-guest';
     $('settings-panel').classList.toggle('locked', locked);
     $('settings-lock').textContent = locked ? '(host decides)' : '';
     document.querySelectorAll('.seg').forEach(seg => {
@@ -201,6 +209,7 @@
     renderSettings();
     renderOppCard();
     if (S.mode === 'host') send({ t: 'settings', settings: S.settings });
+    if (S.mode === 'party-host' && S.net) S.net.send({ t: 'settings', settings: S.settings });
     if (!S.mode) renderHome();
   }
 
@@ -277,7 +286,7 @@
       onStatus: msg => { if (typeof msg === 'string') { $('start-hint').textContent = msg; $('invite-hint').textContent = msg; } },
       onMessage: onMessage,
       onClose: () => onPeerLeft(),
-      onError: (msg) => { toast(msg, true); goHome(); },
+      onError: (msg, type) => { toast(msg + (type === 'timeout' ? ' If this keeps happening, try 🩺 Connection check at the bottom of the home screen.' : ''), true); goHome(); },
     });
     S.net.join(code);
   }
@@ -357,6 +366,7 @@
         if (!S.match) { renderOppCard(); updateStartButton(); }
         break;
       case 'welcome': // host → guest
+        if (m.party) { PD.Party.becomeGuest(m); return; }
         S.connected = true;
         S.oppName = String(m.name || 'Host').slice(0, 16);
         S.settings = Object.assign(S.settings, m.settings);
@@ -940,6 +950,39 @@
     } else goHome();
   }
 
+  // ─────────────── connection check ───────────────
+  let checkReturn = 'home', lastCheck = null, checkRun = 0;
+  function openCheck() {
+    const cur = [...document.querySelectorAll('.screen')].find(x => !x.classList.contains('hidden'));
+    checkReturn = cur && cur.id !== 'screen-check' ? cur.id.replace('screen-', '') : 'home';
+    show('check');
+    runCheck();
+  }
+  async function runCheck() {
+    const run = ++checkRun;
+    $('check-verdict').className = 'panel check-verdict';
+    $('check-verdict').textContent = 'Checking this network… (about 10 seconds)';
+    lastCheck = await PD.Diagnostics.run(r => { if (run === checkRun) renderCheck(r); });
+  }
+  function renderCheck(r) {
+    const icon = x => x.pending ? '⏳' : x.ok === true ? '✅' : x.ok === 'warn' ? '⚠️' : '❌';
+    const rows = [
+      [{ ok: r.online }, 'Internet', r.online ? 'This device is online.' : 'This device is offline.'],
+      [r.server, 'Matchmaking server (direct route)', r.server.detail || 'Checking…'],
+      [r.direct, 'Direct phone-to-phone links', r.direct.detail || 'Checking…'],
+      ...r.brokers.map(b => [b, 'Backup relay · ' + b.label, b.detail || 'Checking…']),
+    ];
+    $('check-list').innerHTML = '';
+    rows.forEach(([x, label, detail]) => $('check-list').appendChild(el('div', { class: 'check-row' },
+      el('span', { class: 'check-icon' }, icon(x)), el('span', { class: 'check-label' }, label), el('span', { class: 'check-detail' }, detail))));
+    if (r.verdict) { $('check-verdict').textContent = r.verdict.text; $('check-verdict').className = 'panel check-verdict ' + r.verdict.level; }
+  }
+  async function copyDiagnostics() {
+    const text = PD.Diagnostics.report(lastCheck);
+    try { await navigator.clipboard.writeText(text); toast('Diagnostics copied — paste them in a message.'); }
+    catch (e) { prompt('Copy this report:', text); }
+  }
+
   // ─────────────── QR code sharing ───────────────
   // Dark modules on a white background with a 4-module quiet zone, as scanners expect.
   function qrDataUrl(text) {
@@ -1422,6 +1465,7 @@
   let lastEmote = 0;
   function sendEmote(e) {
     const now = Date.now(); if (now - lastEmote < 700) return; lastEmote = now;
+    if (S.party) { S.party.toHost({ t: 'emote', e }); return; } // the host shows it to everyone, with the sender's name
     showEmote('me', e);
     send({ t: 'emote', e });
   }
@@ -1452,11 +1496,12 @@
     $('btn-bot').onclick = () => { Sound.click(); S.mode = 'bot'; openLobby(); };
     $('btn-local').onclick = () => { Sound.click(); S.mode = 'local'; openLobby(); };
     $('lobby-leave').onclick = goHome;
-    $('btn-start').onclick = () => { Sound.click(); hostStartMatch(); };
-    $('btn-rematch').onclick = rematch;
-    $('btn-final-home').onclick = finalHome;
+    $('btn-start').onclick = () => { Sound.click(); if (S.party) S.party.hostStartMatch(); else hostStartMatch(); };
+    $('btn-rematch').onclick = () => { if (S.party) { if (S.party.isHost) S.party.hostStartMatch(); } else rematch(); };
+    $('btn-final-home').onclick = () => { if (S.party) S.party.backToLobby(); else finalHome(); };
+    $('btn-party').onclick = () => { Sound.click(); PD.Party.host(); };
     $('btn-share-result').onclick = shareResult;
-    $('btn-forfeit').onclick = giveUp;
+    $('btn-forfeit').onclick = () => { if (S.party) S.party.giveUp(); else giveUp(); };
     $('btn-power').onclick = usePower;
 
     document.querySelectorAll('.seg').forEach(seg => {
@@ -1478,6 +1523,11 @@
     $('btn-share-qr').onclick = () => showQR(challengeLink(), 'Scan to take my challenge', 'Your friend races your ghost through today’s puzzles');
     $('share-app').onclick = () => showQR(location.origin + location.pathname + linkSearch(), 'Scan to play Puzzle Duel', 'Open it on your phone, then tap Install to add it to your home screen');
     $('qr-close').onclick = () => overlay('qr', false);
+    $('open-check').onclick = openCheck;
+    $('lobby-check').onclick = openCheck;
+    $('check-again').onclick = runCheck;
+    $('check-copy').onclick = copyDiagnostics;
+    $('check-back').onclick = () => { checkRun++; if (checkReturn === 'home') goHome(); else show(checkReturn); };
     $('qr-copy').onclick = async () => { try { await navigator.clipboard.writeText(qrText); toast('Link copied!'); } catch (e) { prompt('Copy this link:', qrText); } };
     $('share-link').onclick = async () => {
       const link = inviteLink();
@@ -1561,6 +1611,11 @@
     else if (action === 'daily') startDaily(null);
     else if (action === 'bot') { S.mode = 'bot'; openLobby(); }
   }
+
+  // the party module (js/party.js) drives these screens through a small internal API
+  PD._app = { S, VERSION, show, toast, overlay, countdown, confetti, myName, goHome, teardownNet, stopMatchmaker,
+    openLobby, setShareEnabled, hostStatusText, showEmote, Sound, renderSettings };
+  PD.Party.init(PD._app);
 
   init();
   window.PD.app = S; // for debugging

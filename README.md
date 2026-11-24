@@ -7,6 +7,7 @@ It's a static site: no build step and no backend. Host it on GitHub Pages (or an
 ## Ways to play
 - **⚡ Quick Match (ranked)**: get paired with a random player near your skill level, with no account or sign-in. See below.
 - **Online with a friend**: create a room and send the link, the 5-letter code, or show the QR code. See *How friend rooms connect* below.
+- **🎉 Party room (3–8 players)**: one code for the whole group, with a live leaderboard of everyone's progress. Points go by finishing order: 5, 3 and 2 for the top three, 1 for anyone else who finishes, 0 for not finishing. A round ends when everyone is done, 20 seconds after half the players have finished, or at the time limit. The host's phone is the hub (`js/party.js`). Late arrivals play from the next match.
 - **Daily Challenge**: everyone gets the same 3 puzzles each day. Share a challenge link and your friend races your ghost asynchronously. Tracks daily streaks.
 - **Vs Bot**: Rookie, Pro, Master, or **Adaptive**. The Adaptive bot speeds up when you win and slows down when you lose, settling at your level.
 - **Pass & Play**: two players on one device. Player 2 races player 1's recorded ghost.
@@ -33,6 +34,10 @@ Rooms use two independent routes, so a game still connects when one of them is b
 2. **Relay (MQTT over secure WebSockets).** This is the backup route. Messages pass through public MQTT brokers (`broker.emqx.io`, `broker.hivemq.com`) on topics named after the room code. It only needs a normal web connection, so it works behind strict mobile-carrier networks and firewalls, and when the PeerJS server is down. The relay client is in `js/relay.js`.
 
 The host listens on both routes. The guest tries the direct route first and also tries the relay if the direct link hasn't opened within about 3.5 seconds. Whichever route connects first carries the game, and the ping indicator says "relay" when the backup is in use. Relay traffic goes through public servers, but the game sends nothing sensitive: names, progress and emotes.
+
+If a connection drops **during a match**, both players see a 30-second "Reconnecting…" screen. The friend's phone rejoins automatically. Quick Match uses a private resume code derived from the match. The match then continues with scores intact, and the interrupted round restarts with a fresh puzzle. If the player doesn't come back in time, they're treated as having left (a forfeit in ranked). Choosing **Leave** is immediate.
+
+**🩺 Connection check** (home screen footer, or "Trouble connecting?" in a room) tests the PeerJS server, whether this network allows direct links (STUN, TURN, strict NAT), and each relay broker. It says in plain words whether friend games will work. **Copy diagnostics** produces a report that includes a log of recent connection events (`js/diagnostics.js`).
 
 Other safeguards:
 - The host keeps the **same room code** when its connection drops, for example when switching apps to send the code, and reconnects as soon as it's back on screen.
@@ -65,6 +70,13 @@ Two players per room. Any number of rooms can run at once.
 ## Development
 - Plain HTML, CSS and JS. Dependencies are vendored: PeerJS (MIT, see `vendor/peerjs.LICENSE`) and qrcode-generator by Kazuhiko Arase (MIT, notice in `vendor/qrcode.js`).
 - Files: `index.html`, `style.css`, `js/util.js` (seeded RNG, sound, helpers), `js/net.js` (networking), `js/matchmaker.js` (Quick Match and Elo), `js/puzzles.js` (all puzzles), `js/app.js` (lobby and match flow), `sw.js` (offline cache).
+- **Tests:** `npm install`, then `npm test`. They run in a headless Chromium with Playwright, and GitHub Actions runs them on every push. They cover:
+  - every puzzle: identical for both players at every difficulty, and solvable through its real controls
+  - all game modes
+  - online matches
+  - Quick Match, including Elo and the forfeit rules
+  - install, Back button and QR codes
+  - friend-room connectivity when things fail, using a stand-in for the PeerJS cloud (`tests/mock-peer.js`) and real local MQTT brokers
 - To test online play without internet, add `?net=bc` to the URL. This switches to a BroadcastChannel transport between two tabs of the same browser (open the invite link in a second tab).
 
 ## Hosting on GitHub Pages

@@ -74,6 +74,11 @@
           <button class="btn primary" id="btn-join">Join</button>
         </div>
       </div>
+      <button class="menu-card party" id="btn-party">
+        <span class="mc-icon">🎉</span>
+        <span class="mc-title">Party room <span class="badge party-badge">3–8 players</span></span>
+        <span class="mc-sub">One code for the whole group · live leaderboard</span>
+      </button>
       <button class="menu-card daily" id="btn-daily">
         <span class="mc-icon">📅</span>
         <span class="mc-title">Daily Challenge</span>
@@ -107,6 +112,7 @@
     <footer class="foot">
       <button class="btn small primary hidden" id="btn-install">📲 Install app</button>
       <button class="btn small" id="share-app">📱 Share the game</button>
+      <button class="btn small" id="open-check">🩺 Connection check</button>
       <button class="btn small" id="sound-toggle">🔊 Sound on</button>
     </footer>
   </section>
@@ -128,6 +134,12 @@
         <button class="btn" id="share-link">📤 Share</button>
       </div>
       <div class="invite-hint" id="invite-hint">Send the link to a friend. Keep this tab open.</div>
+      <button class="linkish" id="lobby-check">Trouble connecting? Run a connection check</button>
+    </div>
+
+    <div class="panel party-players-panel">
+      <h2>Players <span class="muted small" id="party-count"></span></h2>
+      <div class="party-players" id="party-players"></div>
     </div>
 
     <div class="players">
@@ -150,7 +162,7 @@
           <button data-v="easy">Easy</button><button data-v="normal">Normal</button><button data-v="hard">Hard</button>
         </div>
       </div>
-      <div class="setting">
+      <div class="setting" id="order-setting">
         <span class="setting-label">Next puzzle</span>
         <div class="seg" data-setting="order">
           <button data-v="random">Random</button><button data-v="pick">Loser picks</button>
@@ -178,6 +190,22 @@
       <button class="btn primary big" id="btn-start" disabled>Start match</button>
       <div class="muted small" id="start-hint"></div>
     </div>
+  </section>
+
+  <!-- ═════════ CONNECTION CHECK ═════════ -->
+  <section class="screen hidden" id="screen-check">
+    <div class="topbar">
+      <button class="btn small" id="check-back">← Back</button>
+      <span class="topbar-title">Connection check</span>
+      <span></span>
+    </div>
+    <div class="panel check-verdict" id="check-verdict">Checking this network…</div>
+    <div class="panel check-list" id="check-list"></div>
+    <div class="row center">
+      <button class="btn" id="check-again">🔄 Run again</button>
+      <button class="btn primary" id="check-copy">📋 Copy diagnostics</button>
+    </div>
+    <p class="muted small check-help">Friend games try a <b>direct link</b> between the two phones first and fall back to a <b>relay</b> if the network blocks it. Run this on both phones if you can't connect, and send the copied report to whoever is helping you.</p>
   </section>
 
   <!-- ═════════ QUICK MATCH SEARCH ═════════ -->
@@ -221,6 +249,10 @@
         <div class="pct" id="hud-opp-pct"></div>
         <div class="emote-bubble" id="opp-bubble"></div>
       </div>
+    </div>
+    <div class="party-hud">
+      <div class="party-hud-top"><span class="hud-round" id="party-round">Round 1</span><span class="hud-timer" id="party-timer">0.0s</span></div>
+      <div class="party-board" id="party-board"></div>
     </div>
     <div class="puzzle-head">
       <span class="ph-icon" id="ph-icon"></span>
@@ -323,10 +355,12 @@
 <script src="vendor/peerjs.min.js"></script>
 <script src="vendor/qrcode.js"></script>
 <script src="js/util.js"></script>
+<script src="js/diagnostics.js"></script>
 <script src="js/relay.js"></script>
 <script src="js/net.js"></script>
 <script src="js/puzzles.js"></script>
 <script src="js/matchmaker.js"></script>
+<script src="js/party.js"></script>
 <script src="js/app.js"></script>
 <script>
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

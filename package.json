@@ -1,0 +1,14 @@
+{
+  "name": "puzzle-duel",
+  "private": true,
+  "description": "Competitive two-player puzzle race in the browser. Static site; this file is only for the test suite.",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 --test-timeout=600000 \"tests/*.test.js\""
+  },
+  "devDependencies": {
+    "aedes": "0.51.3",
+    "jsqr": "1.4.0",
+    "playwright": "1.63.0",
+    "ws": "8.18.0"
+  }
+}
