@@ -41,7 +41,8 @@ test('normal: share buttons wait for the room; friend connects directly', async 
   await H.ev(h, () => document.getElementById('btn-create').click());
   assert.ok(await H.ev(h, () => document.getElementById('copy-link').disabled && document.getElementById('qr-link').disabled), 'disabled before open');
   await waitFor(() => H.ev(h, () => !document.getElementById('copy-link').disabled), 15000, 'open');
-  assert.match(await hint(h), /Room open \(direct \+ relay\)/);
+  // the room opens on whichever route is ready first; both should be up shortly after
+  await waitFor(async () => /Room open \(direct \+ relay\)/.test(await hint(h)), 10000, 'both routes open');
   const code = await H.ev(h, () => PD.app.code);
   const g = await H.add('Guesty', { query: both, hash: '#' + code });
   await waitFor(() => connected(g), 15000, 'connected');
