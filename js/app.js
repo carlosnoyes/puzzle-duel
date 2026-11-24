@@ -114,6 +114,7 @@
 
   function goHome() {
     if (S.party) { S.party.leave(); S.party = null; }
+    cancelReconnect();
     stopMatchmaker();
     S.ranked = null;
     teardownNet();
@@ -262,7 +263,7 @@
       onStatus: st => { if (typeof st === 'object' && S.mode === 'host') { $('invite-hint').textContent = hostStatusText(st); setShareEnabled(st.ready); } },
       onOpen: () => {},
       onMessage: onMessage,
-      onClose: () => onPeerLeft(),
+      onClose: () => onPeerLeft('drop'),
       onError: (msg, type) => {
         if (type === 'unavailable-id') { teardownNet(); startHost(); return; } // code clash before the room opened
         toast(msg, true);
@@ -285,14 +286,15 @@
       onOpen: () => { send({ t: 'hello', name: myName(), v: VERSION }); $('invite-hint').textContent = 'Connected! Waiting for the host…'; },
       onStatus: msg => { if (typeof msg === 'string') { $('start-hint').textContent = msg; $('invite-hint').textContent = msg; } },
       onMessage: onMessage,
-      onClose: () => onPeerLeft(),
+      onClose: () => onPeerLeft('drop'),
       onError: (msg, type) => { toast(msg + (type === 'timeout' ? ' If this keeps happening, try 🩺 Connection check at the bottom of the home screen.' : ''), true); goHome(); },
     });
     S.net.join(code);
   }
 
-  function onPeerLeft() {
+  function onPeerLeft(reason) {
     if (!S.connected || S.unloading) return; // our own tab closing also drops the connection
+    if (reason !== 'bye' && liveOnline()) { beginReconnect(); return; } // a dropout, not a goodbye
     S.connected = false; S.rtt = null; showPing();
     const who = S.oppName || 'Your rival';
     if (S.ranked) {
@@ -337,8 +339,8 @@
     hbTimer = setInterval(() => {
       if (!S.net || !S.connected) return;
       send({ t: 'ping', ts: Date.now() });
-      const limit = S.match && !S.match.over ? 20000 : 60000;
-      if (Date.now() - S.lastSeen > limit) { toast('Connection lost.', true); onPeerLeft(); }
+      const limit = S.match && !S.match.over ? 12000 : 60000;
+      if (Date.now() - S.lastSeen > limit) onPeerLeft('drop');
     }, 2000);
   }
   function showPing() {
@@ -356,6 +358,7 @@
       case 'pong': S.rtt = Math.max(1, Date.now() - m.ts); showPing(); return;
       case 'hello': // guest → host
         if (S.mode !== 'host') return;
+        if (S.reconnect) { if (m.resume === S.reconnect.token) resumeAsHost(); return; } // only the player we're waiting for
         S.connected = true;
         S.oppName = String(m.name || 'Rival').slice(0, 16);
         if (m.v !== VERSION) toast(`${S.oppName} is on a different version — ask them to refresh.`, true);
@@ -397,18 +400,18 @@
         beginRound(m);
         break;
       case 'prog':
-        if (S.round && m.i === S.round.i) {
+        if (S.round && m.i === S.round.i && (m.a || 0) === (S.round.a || 0)) {
           S.round.prog[oppRole()] = m.p;
           setBar(oppRole(), m.p);
         }
         break;
       case 'fin':
-        if (!S.round || m.i !== S.round.i) return;
+        if (!S.round || m.i !== S.round.i || (m.a || 0) !== (S.round.a || 0)) return;
         markFinished(oppRole(), m.ms);
         if (isAuthority()) hostFinish(oppRole(), m.ms);
         break;
       case 'giveup':
-        if (!S.round || m.i !== S.round.i) return;
+        if (!S.round || m.i !== S.round.i || (m.a || 0) !== (S.round.a || 0)) return;
         if (isAuthority()) hostGiveUp(oppRole());
         break;
       case 'result':
@@ -426,6 +429,9 @@
       case 'rate':
         if (S.ranked && isFinite(+m.r)) { S.ranked.oppRating = Math.max(100, Math.min(3200, Math.round(+m.r))); updateRankedHud(); }
         break;
+      case 'resumed':
+        if (S.mode === 'guest' && S.reconnect) resumeAsGuest(m);
+        break;
       case 'freeze':
         if (S.round && m.i === S.round.i) receiveFreeze();
         break;
@@ -441,7 +447,7 @@
         if (S.mode === 'guest') { abortMatch(); openLobby(); }
         break;
       case 'bye':
-        onPeerLeft();
+        onPeerLeft('bye');
         break;
     }
   }
@@ -477,12 +483,14 @@
 
   function hostNextRound(pidOverride) {
     const M = S.match; if (!M) return;
+    if (S.reconnect) { S.reconnect.pendingNext = true; S.reconnect.pendingPid = pidOverride; return; }
     overlay('pick', false); clearInterval(pickTimer);
     const i = M.history.length;
     const msg = {
       t: 'round', i,
       pid: (pidOverride && P.byId[pidOverride] && M.pool.includes(pidOverride)) ? pidOverride : puzzleForRound(M, i),
-      seed: (M.seed ^ Math.imul(i + 1, 0x9E3779B1)) >>> 0,
+      seed: (M.seed ^ Math.imul(i + 1, 0x9E3779B1) ^ Math.imul(M.attempt || 0, 0x85EBCA6B)) >>> 0,
+      a: M.attempt || 0,
       diff: M.diff,
       limit: TIME_LIMIT[M.diff] || 150,
     };
@@ -544,6 +552,7 @@
   // ─────────────── match flow (both sides) ───────────────
   function beginMatch(match) {
     S.match = Object.assign({}, match, { scores: { host: 0, guest: 0 }, history: [] });
+    document.body.dataset.mode = S.mode || '';
     S.rematch = { host: false, guest: false };
     $('hud-me-name').textContent = S.mode === 'local' ? myName() : myName();
     $('hud-opp-name').textContent = nameOf(oppRole());
@@ -600,7 +609,7 @@
     overlay('result', false); overlay('pick', false); clearInterval(pickTimer); S.pickFor = null;
     const pz = P.byId[msg.pid];
     const R = S.round = {
-      i: msg.i, pid: msg.pid, seed: msg.seed, diff: msg.diff, limit: msg.limit,
+      i: msg.i, a: msg.a || 0, pid: msg.pid, seed: msg.seed, diff: msg.diff, limit: msg.limit,
       times: { host: null, guest: null }, gaveUp: { host: false, guest: false }, prog: { host: 0, guest: 0 },
       resolved: false, myDone: false, active: false, frozenUntil: 0,
       turn: S.mode === 'local' ? 'host' : null, samples: [],
@@ -639,7 +648,7 @@
         if (S.mode === 'host' || S.mode === 'guest') {
           const now = performance.now();
           pendingProg = p;
-          const flush = () => { progTimer = null; if (pendingProg != null) { send({ t: 'prog', i: R.i, p: pendingProg }); pendingProg = null; lastSent = performance.now(); } };
+          const flush = () => { progTimer = null; if (pendingProg != null) { send({ t: 'prog', i: R.i, a: R.a, p: pendingProg }); pendingProg = null; lastSent = performance.now(); } };
           if (now - lastSent > 120) flush(); else if (!progTimer) progTimer = setTimeout(flush, 120);
         }
       },
@@ -662,12 +671,12 @@
         return end;
       },
     };
-    R.attempt = { actor, api, flushProg: () => { if (progTimer) { clearTimeout(progTimer); progTimer = null; } if (pendingProg != null) send({ t: 'prog', i: R.i, p: pendingProg }); } };
+    R.attempt = { actor, api, flushProg: () => { if (progTimer) { clearTimeout(progTimer); progTimer = null; } if (pendingProg != null) send({ t: 'prog', i: R.i, a: R.a, p: pendingProg }); } };
     try { R.puzzle = pz.create(stage, api); }
     catch (err) { console.error(err); stage.textContent = 'Puzzle failed to load: ' + err.message; }
 
     countdown(pz, () => {
-      if (S.round !== R) return;
+      if (S.round !== R || S.reconnect) return;
       stage.style.visibility = '';
       R.active = true; R.startAt = performance.now();
       R.myDone = false;
@@ -691,7 +700,7 @@
     recordBest(R.pid, R.diff, ms, actor);
     Sound.win();
     if (S.mode === 'local') { localTurnOver(actor, ms, false); return; }
-    send({ t: 'fin', i: R.i, ms });
+    send({ t: 'fin', i: R.i, a: R.a, ms });
     $('wait-msg').innerHTML = `Solved in <b>${fmtTime(ms)}</b>!<br><span class="muted small">Waiting for the result…</span>`;
     overlay('waiting', true);
     if (isAuthority()) hostFinish(myRole(), ms);
@@ -726,7 +735,7 @@
     $('wait-msg').innerHTML = `🏳️ You gave up this round.`;
     overlay('waiting', true);
     if (S.mode === 'local') { localTurnOver(R.turn, null, true); return; }
-    send({ t: 'giveup', i: R.i });
+    send({ t: 'giveup', i: R.i, a: R.a });
     if (isAuthority()) hostGiveUp(myRole());
   }
 
@@ -805,7 +814,12 @@
     };
     num.textContent = '';
     clearInterval(cdTimer);
-    setTimeout(() => { step(); cdTimer = setInterval(step, 750); }, 900);
+    // first time this player meets this puzzle: flag it and give them a moment longer to read
+    const seen = store('seenPuzzles') || [];
+    const isNew = !seen.includes(pz.id);
+    $('cd-new').classList.toggle('hidden', !isNew);
+    if (isNew) store('seenPuzzles', seen.concat(pz.id));
+    setTimeout(() => { step(); cdTimer = setInterval(step, 750); }, isNew ? 2400 : 900);
   }
 
   function showResult(m) {
@@ -1045,6 +1059,107 @@
     overlay('install', true);
   }
 
+  // ─────────────── surviving brief dropouts mid-match ───────────────
+  // A dropped connection during a live online match pauses both players for RESUME_MS. The guest
+  // keeps re-joining in the background (Quick Match uses a private resume code derived from the
+  // match), the host keeps the room open, and the interrupted round is replayed with a fresh puzzle.
+  const RESUME_MS = +new URLSearchParams(location.search).get('resume') || 30000; // ?resume= is a test hook
+  const liveOnline = () => (S.mode === 'host' || S.mode === 'guest') && !!S.match && !S.match.over;
+  function resumeCode() {
+    let n = S.match.seed >>> 0, s = 'R';
+    const ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for (let k = 0; k < 6; k++) { s += ABC[n % 32]; n = Math.floor(n / 32); }
+    return s;
+  }
+
+  function beginReconnect() {
+    if (S.reconnect) return;
+    const R = S.reconnect = { until: Date.now() + RESUME_MS, token: S.match.seed };
+    S.reconnects = (S.reconnects || 0) + 1;
+    S.connected = false; clearInterval(hbTimer); S.rtt = null; showPing();
+    if (S.round) S.round.active = false; // pause: the overlay also blocks input
+    overlay('countdown', false);
+    const who = S.oppName || 'Your rival';
+    $('reconnect-title').textContent = 'Connection lost';
+    $('reconnect-sub').textContent = S.mode === 'host' ? `Waiting for ${who} to reconnect…` : `Reconnecting to ${who}…`;
+    overlay('reconnect', true);
+    PD.log && PD.log('match: connection lost, reconnect window ' + RESUME_MS / 1000 + 's');
+    const tick = () => {
+      if (S.reconnect !== R) return;
+      const left = Math.max(0, R.until - Date.now());
+      $('reconnect-time').textContent = Math.ceil(left / 1000) + 's';
+      if (left <= 0) reconnectFailed();
+    };
+    tick(); R.timer = setInterval(tick, 250);
+    if (S.mode === 'host') {
+      if (!S.ranked) { if (S.net && S.net.drop) S.net.drop(); } // friend room: free the slot for the returning friend
+      else {                                              // Quick Match: open a private resume room
+        try { S.net && S.net.close(); } catch (e) {}
+        S.net = PD.Net.create({ onMessage, onClose: () => onPeerLeft('drop'), onStatus: () => {}, onError: () => {} });
+        S.net.host(resumeCode());
+      }
+    } else tryRejoin();
+  }
+
+  function tryRejoin() {
+    const R = S.reconnect; if (!R) return;
+    try { S.net && S.net.close(); } catch (e) {}
+    const net = S.net = PD.Net.create({
+      onOpen: () => send({ t: 'hello', name: myName(), v: VERSION, resume: R.token }),
+      onMessage, onClose: () => onPeerLeft('drop'), onStatus: () => {},
+      onError: () => { if (S.reconnect === R && S.net === net) setTimeout(() => { if (S.reconnect === R && S.net === net) tryRejoin(); }, 1000); },
+    });
+    net.join(S.ranked ? resumeCode() : S.code);
+  }
+
+  function endReconnect() {
+    const R = S.reconnect; if (!R) return null;
+    clearInterval(R.timer); S.reconnect = null;
+    overlay('reconnect', false);
+    S.connected = true; S.lastSeen = Date.now(); startHeartbeat();
+    return R;
+  }
+
+  function resumeAsHost() {
+    const R = endReconnect(); if (!R) return;
+    const M = S.match;
+    send({ t: 'resumed', scores: M.scores, history: M.history });
+    toast(`${S.oppName || 'Your rival'} is back!`); Sound.good();
+    PD.log && PD.log('match: resumed');
+    const rd = S.round;
+    if (rd && !rd.resolved) { rd.resolved = true; endRoundUI(); M.attempt = (M.attempt || 0) + 1; setTimeout(() => hostNextRound(rd.pid), 800); }
+    else if (R.pendingNext) setTimeout(() => hostNextRound(R.pendingPid), 800);
+  }
+
+  function resumeAsGuest(m) {
+    endReconnect();
+    const M = S.match;
+    if (M) { M.scores = m.scores; M.history = m.history; }
+    updateScores();
+    if (S.round && !S.round.resolved) { S.round.resolved = true; endRoundUI(); }
+    toast('Reconnected!'); Sound.good();
+    PD.log && PD.log('match: resumed');
+  }
+
+  function cancelReconnect() { const R = S.reconnect; if (!R) return; clearInterval(R.timer); S.reconnect = null; overlay('reconnect', false); }
+
+  function reconnectFailed() {
+    cancelReconnect();
+    PD.log && PD.log('match: reconnect window expired');
+    if (S.ranked && !navigator.onLine) { // it was our connection that died
+      const res = applyElo(0); S.ranked = null;
+      toast(`You lost your connection — counted as a loss (${fmtDelta(res.delta)}).`, true);
+      goHome(); return;
+    }
+    S.connected = true;   // let the normal "player left" handling run
+    onPeerLeft('bye');
+  }
+
+  function leaveDuringReconnect() {
+    if (S.ranked) applyElo(0);
+    goHome();
+  }
+
   // ─────────────── quick match (ranked, no backend) ───────────────
   let mm = null, searchTimer = null;
   const fmtDelta = d => (d >= 0 ? '+' : '') + d;
@@ -1106,7 +1221,7 @@
     S.connected = true;
     S.net = PD.Net.adopt({
       onMessage: onMessage,
-      onClose: () => onPeerLeft(),
+      onClose: () => onPeerLeft('drop'),
       onError: (msg) => toast(msg, true),
     }, m.peer, m.conn);
     startHeartbeat();
@@ -1471,6 +1586,7 @@
   }
 
   function confetti() {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const colors = ['#4fc3f7', '#f48fb1', '#ffd54f', '#69f0ae', '#a78bfa'];
     for (let i = 0; i < 80; i++) {
       const c = el('div', { class: 'confetti', style: { left: Math.random() * 100 + 'vw', background: colors[i % colors.length], animationDuration: (1.8 + Math.random() * 1.8) + 's', animationDelay: Math.random() * 0.6 + 's', borderRadius: Math.random() < 0.5 ? '50%' : '2px' } });
@@ -1501,6 +1617,7 @@
     $('btn-final-home').onclick = () => { if (S.party) S.party.backToLobby(); else finalHome(); };
     $('btn-party').onclick = () => { Sound.click(); PD.Party.host(); };
     $('btn-share-result').onclick = shareResult;
+    $('reconnect-leave').onclick = leaveDuringReconnect;
     $('btn-forfeit').onclick = () => { if (S.party) S.party.giveUp(); else giveUp(); };
     $('btn-power').onclick = usePower;
 

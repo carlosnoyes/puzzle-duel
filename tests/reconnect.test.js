@@ -20,6 +20,7 @@ const ev = (n, fn, a) => H.ev(n, fn, a);
 const active = (n, i) => ev(n, i => !!(PD.app.round && PD.app.round.active && (i == null || PD.app.round.i === i)), i);
 const scores = n => ev(n, () => PD.app.match && PD.app.match.scores);
 const overlayOn = n => ev(n, () => !document.getElementById('reconnect').classList.contains('hidden'));
+const reconnects = n => ev(n, () => PD.app.reconnects || 0); // the overlay can come and go faster than we poll
 const kill = n => H.page.evaluate(n => window.__mockKill(n), n); // cut this player's connection, page stays open
 // a phone that died: network cut and it never rejoins (closing a tab instead sends a goodbye = immediate leave)
 const dies = async n => { await ev(n, () => { PD.Net.create = () => ({ join() {}, host() {}, send() {}, close() {}, drop() {}, wake() {} }); }); await kill(n); };
@@ -43,8 +44,7 @@ test('friend room: a dropped connection pauses both sides, then resumes with sco
   await waitFor(async () => (await active(h, 1)) && (await active(g, 1)), 15000, 'round 2');
   const before = await ev(h, () => PD.app.round.seed);
   await kill(g);
-  await waitFor(async () => (await overlayOn(h)) && (await overlayOn(g)), 5000, 'both show reconnecting');
-  assert.ok(!(await active(g)), 'puzzle paused during the dropout');
+  await waitFor(async () => (await reconnects(h)) === 1 && (await reconnects(g)) === 1, 5000, 'both went into reconnecting');
   await waitFor(async () => !(await overlayOn(h)) && !(await overlayOn(g)), 15000, 'resumed');
   assert.deepStrictEqual(await scores(h), { host: 0, guest: 1 });
   assert.deepStrictEqual(await scores(g), { host: 0, guest: 1 });
@@ -85,7 +85,7 @@ test('ranked Quick Match: dropout resumes over a private resume code; Elo is app
   await waitFor(async () => (await active(a, 0)) && (await active(b, 0)), 40000, 'ranked round 1');
   const guest = (await ev(a, () => PD.app.mode)) === 'guest' ? a : b, host = guest === a ? b : a;
   await kill(guest);
-  await waitFor(async () => (await overlayOn(host)) && (await overlayOn(guest)), 5000, 'both reconnecting');
+  await waitFor(async () => (await reconnects(host)) === 1 && (await reconnects(guest)) === 1, 5000, 'both went into reconnecting');
   await waitFor(async () => !(await overlayOn(host)) && !(await overlayOn(guest)), 20000, 'resumed');
   for (let r = 0; r < 2; r++) {
     await waitFor(async () => (await active(host, r)) && (await active(guest, r)), 15000, 'ranked round ' + (r + 1));

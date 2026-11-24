@@ -30,6 +30,9 @@
   // ── the network, built once in the top window's realm ──
   function factory(S) {
     const lat = () => 15 + Math.random() * 40;
+    // frames that have closed: their code must never be called again (a removed iframe's functions
+    // stay callable from this realm, which would let "ghost" players keep playing)
+    const dead = new Set();
     class EE {
       constructor() { this._h = {}; }
       on(e, f) { (this._h[e] = this._h[e] || []).push(f); return this; }
@@ -38,6 +41,7 @@
     }
     class Conn extends EE {
       constructor(owner, remoteId) { super(); this.owner = owner; this.peer = remoteId; this.open = false; this.other = null; }
+      emit(...a) { if (!dead.has(this.owner.owner)) super.emit(...a); }
       send(d) {
         if (!this.open) return;
         const o = this.other, c = JSON.parse(JSON.stringify(d));
@@ -50,7 +54,8 @@
         if (!this.open) return;
         this.open = false; this.emit('close');
         const o = this.other;
-        if (o && o.open) { o.open = false; setTimeout(() => o.emit('close'), 5); }
+        // the far end learns of the close only after any data already in flight (as on a real connection)
+        if (o && o.open) { const at = Math.max(Date.now() + 5, (this._lastAt || 0) + 1); setTimeout(() => { if (o.open) { o.open = false; o.emit('close'); } }, at - Date.now()); }
       }
     }
     class Peer extends EE {
@@ -60,6 +65,7 @@
         this.id = id; this.owner = owner; this.open = false; this.destroyed = false; this.disconnected = false; this.conns = []; this._last = null;
         this._register();
       }
+      emit(...a) { if (!dead.has(this.owner)) super.emit(...a); }
       _register() {
         const id = this.id;
         setTimeout(() => {
@@ -107,18 +113,21 @@
     const all = [];
     return {
       create(id, opts, owner) { const p = new Peer(id, opts, owner); all.push(p); return p; },
-      closeFrame(owner) { all.forEach(p => { if (p.owner === owner) p.destroy(); }); },
+      closeFrame(owner) { dead.add(owner); all.forEach(p => { if (p.owner === owner) p.destroy(); }); },
+      kill(frameName) { all.forEach(p => { if (p.owner.startsWith(frameName + '#')) p.destroy(); }); },
       blip(id, ms) { const p = S.ids.get(id); if (!p) return false; S.stale[id] = Date.now() + ms; p.disconnect(); return true; },
     };
   }
   if (!T.__mockNet) T.__mockNet = new T.Function('S', 'return (' + factory.toString() + ')(S);')(S);
   const NET = T.__mockNet;
   T.__mockBlip = (id, ms) => NET.blip(id, ms);
+  T.__mockKill = name => NET.kill(name);
 
   // ── per-frame: the Peer constructor the app sees ──
   const owner = window.name + '#' + Math.random().toString(36).slice(2, 6);
   window.Peer = function (id, opts) { return NET.create(id, opts, owner); };
   window.peerjs = { Peer: window.Peer };
-  // closing or reloading this frame closes its peers, like a closed tab
-  window.addEventListener('pagehide', () => NET.closeFrame(owner));
+  // closing or reloading this frame closes its peers, like a closed tab. Registered after the app's
+  // own handlers (on load), so the app gets to say goodbye first, as it would in a real browser.
+  window.addEventListener('load', () => window.addEventListener('pagehide', () => NET.closeFrame(owner)));
 })();

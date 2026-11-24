@@ -358,6 +358,10 @@ button.menu-card:hover { transform: translateY(-2px); border-color: var(--border
 .final-rating { font-size: 1.15rem; background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 8px 16px; }
 .final-rating .up { color: var(--good); font-weight: 800; } .final-rating .down { color: var(--bad); font-weight: 800; }
 
+/* Reconnect overlay */
+.reconnect-time { font-size: 2.4rem; font-weight: 900; color: var(--gold); font-variant-numeric: tabular-nums; }
+#reconnect .res-emoji { animation: pulse 1.2s infinite; }
+
 /* Party rooms */
 .menu-card.party { background: linear-gradient(135deg, rgba(255,213,79,0.12), rgba(167,139,250,0.18)); border-color: #6a4ab0; }
 .party-badge { background: #a78bfa; color: #160b33; }
@@ -426,6 +430,8 @@ body.standalone .hero { padding-top: 6px; }
 /* ── overlays ── */
 .overlay { position: fixed; inset: 0; background: rgba(5,5,18,0.78); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; animation: fade-in 0.2s; }
 .cd-card, .res-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 20px; padding: 28px 32px; text-align: center; max-width: 420px; width: 100%; display: flex; flex-direction: column; gap: 8px; align-items: center; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.cd-new { font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #160b33; background: var(--gold); border-radius: 20px; padding: 3px 10px; }
+.cd-new:not(.hidden) ~ .cd-how { font-size: 1.05rem; color: var(--text); }
 .cd-ctx { font-size: 0.78rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
 .cd-limit { text-transform: capitalize; }
 .cd-icon { font-size: 3rem; }
@@ -479,6 +485,30 @@ body.standalone .hero { padding-top: 6px; }
 
 .confetti { position: fixed; top: -12px; width: 9px; height: 14px; z-index: 60; pointer-events: none; animation: fall linear forwards; }
 @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
+
+/* solo modes: nobody to score against or send emotes to */
+body[data-mode="practice"] .hud-score, body[data-mode="daily"] .hud-score { visibility: hidden; }
+body[data-mode="practice"] .emotes, body[data-mode="daily"] .emotes, body[data-mode="local"] .emotes { display: none; }
+
+/* phones held sideways: keep the puzzle on screen */
+@media (orientation: landscape) and (max-height: 500px) {
+  #app { padding-top: 8px; padding-bottom: 8px; }
+  .hero { padding: 0; } .logo { font-size: 1.8rem; } h1 { font-size: 1.8rem; } .tagline { display: none; }
+  #screen-game { gap: 6px; }
+  .hud-score { font-size: 1.1rem; } .hud-timer { font-size: 1.05rem; }
+  .puzzle-head, .hud-player .pct, .hud-mid .ping, .hud-mute { display: none; }
+  .stage { min-height: 0; gap: 6px; }
+  .hunt-target { font-size: 0.95rem; } .hunt-target b { font-size: 1.2rem; }
+  .hunt-grid, .lights-grid, .memory-grid, .odd-grid, .recall-grid, .pipes-grid, .mines-grid, .sudoku-grid, .nono { width: min(100%, 56vh); gap: 4px; }
+  .slide-board { transform: scale(0.8); transform-origin: top center; margin-bottom: -15%; }
+  .cd-card, .res-card { padding: 14px 20px; gap: 4px; }
+  .cd-icon, .res-emoji { font-size: 2rem; } .cd-num { font-size: 2.6rem; }
+}
+
+/* respect the system "reduce motion" setting */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
 
 @media (max-width: 560px) {
   #app { padding: 12px; }

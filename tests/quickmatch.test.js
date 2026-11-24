@@ -74,6 +74,10 @@ test('three searching at once: two pair up, the third pairs with the next arriva
   await waitFor(async () => (await Promise.all(ps.map(opp))).filter(Boolean).length === 2, 30000, 'pair');
   const lone = ps[(await Promise.all(ps.map(opp))).indexOf(null)];
   const h8 = await H.add('Hana'); await quick(h8);
-  await waitFor(async () => (await opp(lone)) && (await opp(h8)), 40000, 'leftover matched');
+  try { await waitFor(async () => (await opp(lone)) && (await opp(h8)), 40000, 'leftover matched'); }
+  catch (e) {
+    const st = async n => n + ': ' + await H.ev(n, () => document.getElementById('search-status').textContent + ' / opp=' + PD.app.oppName + ' / mode=' + PD.app.mode);
+    throw new Error(e.message + ' | ' + await st(lone) + ' | ' + await st(h8) + ' | ids=' + await H.page.evaluate(() => [...window.__mock.ids.keys()].join(',')) + ' | log=' + JSON.stringify(await H.page.evaluate(() => window.__mock.log.slice(-6))));
+  }
   assert.deepStrictEqual(H.errors, []);
 });

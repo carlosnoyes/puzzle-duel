@@ -21,6 +21,19 @@ const finalShown = () => page.waitForFunction(() => !document.getElementById('sc
 const solveNow = () => page.evaluate(() => PD.app.round.attempt.api.done());
 const home = async () => { if ((await screenOf(page)) !== 'screen-home') await page.click('#btn-final-home'); };
 
+test('first time with a puzzle: "New puzzle" badge, not shown again afterwards', async () => {
+  await page.evaluate(() => localStorage.removeItem('pduel.seenPuzzles'));
+  await page.click('.pl-item:has-text("Lights Out")');
+  await page.waitForSelector('#countdown:not(.hidden)');
+  assert.ok(await isVisible(page, 'cd-new'), 'badge on first sight');
+  await roundActive(); await solveNow(); await finalShown();
+  await page.click('#btn-rematch');
+  await page.waitForSelector('#countdown:not(.hidden)');
+  assert.ok(!(await isVisible(page, 'cd-new')), 'no badge the second time');
+  await roundActive(); await solveNow(); await finalShown();
+  await page.click('#btn-final-home');
+});
+
 test('vs bot: an idle player loses to the Master bot; solving by real taps beats the Rookie', async () => {
   await page.click('#btn-bot');
   await page.click('#settings-panel [data-setting=bot] [data-v=master]');
@@ -94,6 +107,9 @@ test('practice: the personal-best ghost never ends the round; no time limit', as
   await page.click('.pl-item:has-text("Odd One Out")');
   await roundActive();
   assert.match(await page.textContent('#hud-opp-name'), /Your best 1\.0s/);
+  // solo mode: no score or emotes to show
+  assert.strictEqual(await page.evaluate(() => getComputedStyle(document.querySelector('.emotes')).display), 'none');
+  assert.strictEqual(await page.evaluate(() => getComputedStyle(document.getElementById('hud-me-score')).visibility), 'hidden');
   await sleep(3000);
   assert.ok(await page.evaluate(() => PD.app.round.active), 'still playing after the ghost finished');
   await page.evaluate(() => { PD.app.round.startAt -= 400000; }); // way past any time limit

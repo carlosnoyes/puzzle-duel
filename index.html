@@ -297,6 +297,7 @@
   <div class="overlay hidden" id="countdown">
     <div class="cd-card">
       <div class="cd-ctx" id="cd-ctx"></div>
+      <div class="cd-new hidden" id="cd-new">✨ New puzzle</div>
       <div class="cd-icon" id="cd-icon"></div>
       <div class="cd-name" id="cd-name"></div>
       <div class="cd-how" id="cd-how"></div>
@@ -311,6 +312,16 @@
       <div class="res-times" id="res-times"></div>
       <div class="res-score" id="res-score"></div>
       <div class="res-next muted small" id="res-next"></div>
+    </div>
+  </div>
+  <div class="overlay hidden" id="reconnect">
+    <div class="res-card">
+      <div class="res-emoji">📡</div>
+      <div class="res-title" id="reconnect-title">Connection lost</div>
+      <div class="muted" id="reconnect-sub">Reconnecting…</div>
+      <div class="reconnect-time" id="reconnect-time">30s</div>
+      <div class="muted small">The match is paused. Scores are kept, and the interrupted round restarts.</div>
+      <button class="btn" id="reconnect-leave">Leave match</button>
     </div>
   </div>
   <div class="overlay hidden" id="pick">
